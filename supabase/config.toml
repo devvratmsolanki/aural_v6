@@ -1,0 +1,7 @@
+project_id = "ypmdxbiyrmksxlvbeoqf"
+
+[functions.recommend]
+verify_jwt = true
+
+[functions.bootstrap-admin]
+verify_jwt = false

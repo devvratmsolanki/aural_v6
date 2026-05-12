@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Midnight Velvet — wine, plum, dusty rose, champagne */
+    --background: 320 30% 6%;             /* deep plum night */
+    --foreground: 35 40% 92%;             /* champagne */
+
+    --card: 325 28% 9%;                    /* velvet card */
+    --card-foreground: 35 40% 92%;
+
+    --popover: 325 28% 11%;
+    --popover-foreground: 35 40% 92%;
+
+    --primary: 350 55% 65%;                /* dusty rose */
+    --primary-foreground: 325 40% 8%;
+    --primary-glow: 345 70% 75%;
+
+    --secondary: 325 25% 13%;
+    --secondary-foreground: 35 40% 92%;
+
+    --muted: 325 20% 14%;
+    --muted-foreground: 330 15% 60%;
+
+    --accent: 345 60% 55%;                 /* wine */
+    --accent-foreground: 35 40% 96%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 35 40% 96%;
+
+    --border: 325 22% 15%;
+    --input: 325 22% 15%;
+    --ring: 350 55% 65%;
+
+    --silver: 35 25% 80%;
+    --filament: 350 55% 65%;
+
+    --gradient-amber: linear-gradient(135deg, hsl(345 60% 45%), hsl(350 65% 65%));
+    --gradient-velvet: radial-gradient(ellipse at top, hsl(330 40% 14%), hsl(320 30% 6%) 60%);
+    --gradient-fade: linear-gradient(180deg, hsl(325 28% 9% / 0), hsl(320 30% 6%));
+    --shadow-glow: 0 0 32px hsl(350 55% 65% / 0.35);
+    --shadow-deck: 0 -12px 48px hsl(325 60% 4% / 0.7);
+
+    --radius: 0.375rem;
+
+    --sidebar-background: 325 30% 7%;
+    --sidebar-foreground: 35 25% 75%;
+    --sidebar-primary: 350 55% 65%;
+    --sidebar-primary-foreground: 325 40% 8%;
+    --sidebar-accent: 325 25% 12%;
+    --sidebar-accent-foreground: 35 40% 92%;
+    --sidebar-border: 325 22% 14%;
+    --sidebar-ring: 350 55% 65%;
+  }
+
+  .light {
+    --background: 40 20% 98%;
+    --foreground: 0 0% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 6%;
+    --primary: 28 90% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 15% 94%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 40 15% 92%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 28 90% 42%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 10% 88%;
+    --input: 40 10% 88%;
+    --ring: 28 90% 42%;
+    --silver: 0 0% 35%;
+    --filament: 28 90% 42%;
+    --sidebar-background: 40 20% 96%;
+    --sidebar-foreground: 0 0% 30%;
+    --sidebar-primary: 28 90% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 15% 92%;
+    --sidebar-accent-foreground: 0 0% 10%;
+    --sidebar-border: 40 10% 88%;
+    --sidebar-ring: 28 90% 42%;
+  }
+}
+
+@layer utilities {
+  .text-silver { color: hsl(var(--silver)); }
+  .bg-filament { background-color: hsl(var(--filament)); }
+  .text-filament { color: hsl(var(--filament)); }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .shadow-deck { box-shadow: var(--shadow-deck); }
+  .bg-gradient-amber { background-image: var(--gradient-amber); }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background-image: var(--gradient-velvet);
+    background-attachment: fixed;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
