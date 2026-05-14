@@ -160,18 +160,23 @@ export const SongExtras = ({ songId, songTitle = "", section = "all", listenSeco
   const recipientId = (fromId: string) =>
     Object.keys(profiles).find((id) => id !== fromId) ?? fromId;
 
+  // Always fetch fresh data — avoids stale closure from recording callbacks
   const sendNotification = async (type: "voice_note" | "letter") => {
     if (!user) return;
-    const toId = recipientId(user.id);
-    if (toId === user.id) return; // only one user in the app, skip
-    await supabase.from("notifications").insert({
-      recipient_id: toId,
+    const [{ data: recipient }, { data: sender }] = await Promise.all([
+      supabase.from("profiles").select("id").neq("id", user.id).limit(1).maybeSingle(),
+      supabase.from("profiles").select("name").eq("id", user.id).maybeSingle(),
+    ]);
+    if (!recipient?.id) return;
+    const { error } = await supabase.from("notifications").insert({
+      recipient_id: recipient.id,
       sender_id: user.id,
       type,
       song_id: songId,
       song_title: songTitle,
-      sender_name: profile?.name ?? "Someone",
+      sender_name: (sender as any)?.name ?? "Someone",
     });
+    if (error) console.error("notification insert failed:", error.message);
   };
 
   const pickMime = () => {
