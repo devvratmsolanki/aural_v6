@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Mic, Square, Trash2, Lock, Unlock, MessageCircleHeart, ScrollText, Plus, Play, Pause, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
-interface Props { songId: string; section?: "all" | "voice" | "letters"; listenSeconds?: number }
+interface Props { songId: string; songTitle?: string; section?: "all" | "voice" | "letters"; listenSeconds?: number }
 
 const UNLOCK_AFTER = 30; // seconds of listening before sealed items unlock
 const MAX_REC_SECONDS = 30; // max length of a voice note recording
@@ -106,8 +106,8 @@ const VoiceNotePlayer = ({ path }: { path: string }) => {
   );
 };
 
-export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props) => {
-  const { user, isAdmin } = useAuth();
+export const SongExtras = ({ songId, songTitle = "", section = "all", listenSeconds = 0 }: Props) => {
+  const { user, isAdmin, profile } = useAuth();
   const { isPlaying, toggle: playerToggle } = usePlayer();
   const [notes, setNotes] = useState<VoiceNote[]>([]);
   const [letters, setLetters] = useState<Letter[]>([]);
@@ -160,6 +160,20 @@ export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props
   const recipientId = (fromId: string) =>
     Object.keys(profiles).find((id) => id !== fromId) ?? fromId;
 
+  const sendNotification = async (type: "voice_note" | "letter") => {
+    if (!user) return;
+    const toId = recipientId(user.id);
+    if (toId === user.id) return; // only one user in the app, skip
+    await supabase.from("notifications").insert({
+      recipient_id: toId,
+      sender_id: user.id,
+      type,
+      song_id: songId,
+      song_title: songTitle,
+      sender_name: profile?.name ?? "Someone",
+    });
+  };
+
   const pickMime = () => {
     const candidates = [
       "audio/webm;codecs=opus",
@@ -200,6 +214,7 @@ export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props
         if (insErr) { setUploading(false); toast.error("Couldn't save voice note: " + insErr.message); return; }
         setUploading(false);
         toast.success("Voice note saved");
+        await sendNotification("voice_note");
         load();
       };
       mr.start();
@@ -227,6 +242,7 @@ export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props
     if (error) { toast.error(error.message); return; }
     setLTitle(""); setLBody(""); setShowLetterForm(false);
     toast.success("Letter sealed 💌");
+    await sendNotification("letter");
     load();
   };
 
@@ -293,9 +309,7 @@ export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props
               <div key={n.id} className="rounded-md border border-border bg-popover/40 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <SenderReceiver fromId={n.user_id} />
-                  {mine && (
-                    <button onClick={() => deleteNote(n)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
-                  )}
+                  <button onClick={() => deleteNote(n)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
                 {locked ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground italic">
@@ -339,7 +353,7 @@ export const SongExtras = ({ songId, section = "all", listenSeconds = 0 }: Props
                   {visible ? <Unlock className="h-3 w-3 text-primary" /> : <Lock className="h-3 w-3" />}
                   {mine ? "You wrote" : visible ? "Unlocked" : "Sealed"}
                 </div>
-                {mine && <button onClick={() => deleteLetter(l.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>}
+                <button onClick={() => deleteLetter(l.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>
               </div>
               {l.title && <div className="text-sm font-medium mb-1">{l.title}</div>}
               {visible ? (

@@ -177,10 +177,10 @@ export const Player = () => {
                   )}
                 </TabsContent>
                 <TabsContent value="voice" className="flex-1 overflow-y-auto px-6 pb-8 mt-2">
-                  <SongExtras songId={current.id} section="voice" listenSeconds={position} />
+                  <SongExtras songId={current.id} songTitle={current.title} section="voice" listenSeconds={position} />
                 </TabsContent>
                 <TabsContent value="letters" className="flex-1 overflow-y-auto px-6 pb-8 mt-2">
-                  <SongExtras songId={current.id} section="letters" listenSeconds={position} />
+                  <SongExtras songId={current.id} songTitle={current.title} section="letters" listenSeconds={position} />
                 </TabsContent>
               </Tabs>
             </SheetContent>

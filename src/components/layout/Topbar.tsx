@@ -1,11 +1,13 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Search, User as UserIcon, Shield, LogOut, Settings } from "lucide-react";
+import { Search, User as UserIcon, Shield, LogOut, Settings, Bell, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import logo from "@/assets/logo.png";
 
 const fmt = (s: number) => {
@@ -15,11 +17,74 @@ const fmt = (s: number) => {
   return `${m}:${ss}`;
 };
 
+interface Notif {
+  id: string;
+  type: "voice_note" | "letter";
+  song_id: string;
+  song_title: string;
+  sender_name: string;
+  read_at: string | null;
+  created_at: string;
+}
+
 export const Topbar = () => {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
   const { user, isAdmin, profile, signOut } = useAuth();
   const { current, position, duration } = usePlayer();
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+
+  const loadNotifs = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("recipient_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    setNotifs((data as Notif[]) ?? []);
+  }, [user]);
+
+  useEffect(() => { loadNotifs(); }, [loadNotifs]);
+
+  // Real-time: toast + add to list when a new notification arrives
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`notifs:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${user.id}` },
+        (payload) => {
+          const n = payload.new as Notif;
+          setNotifs((prev) => [n, ...prev]);
+          const label = n.type === "voice_note" ? "voice note 🎤" : "letter 💌";
+          toast(`${n.sender_name} sent you a ${label}`, { description: n.song_title });
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  const markAllRead = async () => {
+    const unread = notifs.filter((n) => !n.read_at).map((n) => n.id);
+    if (!unread.length) return;
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).in("id", unread);
+    setNotifs((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })));
+  };
+
+  const dismiss = async (id: string) => {
+    await supabase.from("notifications").delete().eq("id", id);
+    setNotifs((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const clearAll = async () => {
+    if (!user) return;
+    await supabase.from("notifications").delete().eq("recipient_id", user.id);
+    setNotifs([]);
+  };
+
+  const unreadCount = notifs.filter((n) => !n.read_at).length;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +117,55 @@ export const Topbar = () => {
         <Link to="/search" className="md:hidden size-9 rounded-full bg-popover border border-border flex items-center justify-center" aria-label="Search">
           <Search className="h-4 w-4 text-silver" />
         </Link>
+
+        {/* Notification bell */}
+        {user && (
+          <Popover onOpenChange={(open) => { if (open) markAllRead(); }}>
+            <PopoverTrigger asChild>
+              <button className="relative size-9 rounded-full bg-popover border border-border flex items-center justify-center hover:border-primary transition-colors" aria-label="Notifications">
+                <Bell className="h-4 w-4 text-silver" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center px-1">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 p-0">
+              <div className="p-3 border-b border-border flex items-center justify-between">
+                <span className="text-sm font-medium">Notifications</span>
+                {notifs.length > 0 && (
+                  <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    Clear all
+                  </button>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {notifs.length === 0 && (
+                  <p className="p-4 text-sm text-muted-foreground text-center">Nothing here yet</p>
+                )}
+                {notifs.map((n) => (
+                  <div key={n.id} className={`p-3 border-b border-border last:border-0 flex items-start gap-3 ${!n.read_at ? "bg-primary/5" : ""}`}>
+                    <span className="text-base shrink-0 mt-0.5">{n.type === "voice_note" ? "🎤" : "💌"}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm leading-snug">
+                        <span className="font-medium">{n.sender_name}</span>{" "}
+                        left you a {n.type === "voice_note" ? "voice note" : "letter"}
+                      </p>
+                      {n.song_title && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{n.song_title}</p>
+                      )}
+                    </div>
+                    <button onClick={() => dismiss(n.id)} className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5 transition-colors" aria-label="Dismiss">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+
         {user ? (
           <Popover>
             <PopoverTrigger asChild>
