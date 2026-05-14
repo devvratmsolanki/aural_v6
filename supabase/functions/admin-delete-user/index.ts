@@ -23,10 +23,18 @@ Deno.serve(async (req) => {
     const { user_id } = await req.json();
     if (!user_id) return new Response(JSON.stringify({ error: "user_id required" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
 
+    // Block deleting yourself
+    if (user_id === user.id) return new Response(JSON.stringify({ error: "Cannot delete your own account" }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Block deleting any admin account
+    const { data: targetRoles } = await adminClient.from("user_roles").select("role").eq("user_id", user_id).eq("role", "admin");
+    if (targetRoles?.length) return new Response(JSON.stringify({ error: "Cannot delete an admin account" }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+
     const { error } = await adminClient.auth.admin.deleteUser(user_id);
     if (error) throw error;
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } });
