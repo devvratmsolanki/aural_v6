@@ -57,19 +57,21 @@ export const SongExtras = ({ songId, songTitle = "", listenSeconds = 0 }: Props)
 
   const sendNotification = async () => {
     if (!user) return;
-    const [{ data: recipient }, { data: sender }] = await Promise.all([
-      supabase.from("profiles").select("id").neq("id", user.id).limit(1).maybeSingle(),
+    const [{ data: recipients }, { data: sender }] = await Promise.all([
+      supabase.from("profiles").select("id").neq("id", user.id),
       supabase.from("profiles").select("name").eq("id", user.id).maybeSingle(),
     ]);
-    if (!recipient?.id) return;
-    const { error } = await supabase.from("notifications").insert({
-      recipient_id: recipient.id,
+    if (!recipients?.length) return;
+    const senderName = (sender as any)?.name ?? "Someone";
+    const rows = recipients.map((r: any) => ({
+      recipient_id: r.id,
       sender_id: user.id,
       type: "letter",
       song_id: songId,
       song_title: songTitle,
-      sender_name: (sender as any)?.name ?? "Someone",
-    });
+      sender_name: senderName,
+    }));
+    const { error } = await supabase.from("notifications").insert(rows);
     if (error) console.error("notification insert failed:", error.message);
   };
 
