@@ -147,7 +147,7 @@ const AdminSongs = () => {
       const remarksBecameSet = !!newRemarks && newRemarks !== oldRemarks;
 
       const payload = {
-        title: form.title.slice(0, 200), artist: form.artist.trim() ? form.artist.slice(0, 200) : null,
+        title: form.title.slice(0, 200), artist: form.artist.trim() ? form.artist.slice(0, 200) : "",
         lyrics: form.lyrics, remarks: newRemarks, status: form.status, file_path,
         cover_image,
         tag_id: form.tag_ids[0] ?? null,

@@ -15,6 +15,7 @@ interface PlayerCtx {
   position: number;
   volume: number;
   playSong: (song: Song, list?: Song[]) => Promise<void>;
+  playShuffle: (list: Song[]) => Promise<void>;
   toggle: () => void;
   next: () => void;
   prev: () => void;
@@ -31,6 +32,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [queue, setQueue] = useState<Song[]>([]);
   const [index, setIndex] = useState(-1);
+  const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -95,8 +97,19 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const newQueue = list && list.length ? list : [song];
     const newIndex = newQueue.findIndex((s) => s.id === song.id);
     setQueue(newQueue);
+    setShuffleHistory([]);
     setIndex(newIndex >= 0 ? newIndex : 0);
     await loadAndPlay(newQueue[newIndex >= 0 ? newIndex : 0]);
+  }, [loadAndPlay]);
+
+  const playShuffle = useCallback(async (list: Song[]) => {
+    if (!list.length) return;
+    setShuffle(true);
+    setShuffleHistory([]);
+    const n = Math.floor(Math.random() * list.length);
+    setQueue(list);
+    setIndex(n);
+    await loadAndPlay(list[n]);
   }, [loadAndPlay]);
 
   const toggle = useCallback(() => {
@@ -109,6 +122,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     if (queue.length === 0) return;
     let n: number;
     if (shuffle) {
+      setShuffleHistory((h) => [...h, index]);
       n = Math.floor(Math.random() * queue.length);
     } else {
       n = index + 1 >= queue.length ? (loop ? 0 : -1) : index + 1;
@@ -123,10 +137,17 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
 
   const prev = useCallback(() => {
     if (queue.length === 0) return;
+    if (shuffle && shuffleHistory.length > 0) {
+      const prev = shuffleHistory[shuffleHistory.length - 1];
+      setShuffleHistory((h) => h.slice(0, -1));
+      setIndex(prev);
+      loadAndPlay(queue[prev]);
+      return;
+    }
     const n = index - 1 < 0 ? queue.length - 1 : index - 1;
     setIndex(n);
     loadAndPlay(queue[n]);
-  }, [queue, index, loadAndPlay]);
+  }, [queue, index, shuffle, shuffleHistory, loadAndPlay]);
 
   // auto-next on ended
   useEffect(() => {
@@ -151,7 +172,11 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [position, current]);
 
-  // stop on logout
+  // stop on logout — react to auth state and the custom event
+  useEffect(() => {
+    if (!user) audioRef.current?.pause();
+  }, [user]);
+
   useEffect(() => {
     const handler = () => { audioRef.current?.pause(); };
     window.addEventListener("aural:stop", handler);
@@ -170,7 +195,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     <Ctx.Provider
       value={{
         current, queue, index, isPlaying, shuffle, loop, duration, position, volume,
-        playSong, toggle, next, prev, seek, setVolume,
+        playSong, playShuffle, toggle, next, prev, seek, setVolume,
         toggleShuffle: () => setShuffle((s) => !s),
         toggleLoop: () => setLoop((s) => !s),
       }}

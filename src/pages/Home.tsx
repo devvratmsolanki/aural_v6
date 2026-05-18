@@ -22,6 +22,23 @@ const Home = () => {
   const setAndStore = (v: View) => { setView(v); localStorage.setItem("home:view", v); };
   const setScopeStore = (s: Scope) => { setScope(s); localStorage.setItem("home:scope", s); };
 
+  // On each browser session, if there are unplayed songs switch to "Newly added" tab
+  useEffect(() => {
+    if (!user) return;
+    const sessionKey = `aural:new-check:${user.id}`;
+    if (sessionStorage.getItem(sessionKey)) return;
+    sessionStorage.setItem(sessionKey, "1");
+    (async () => {
+      const { data: played } = await supabase.from("play_history").select("song_id").eq("user_id", user.id);
+      const playedIds = (played ?? []).map((r: any) => r.song_id as string);
+      if (playedIds.length === 0) { setScopeStore("new"); return; }
+      const { count } = await supabase.from("songs").select("id", { count: "exact", head: true })
+        .eq("status", "active")
+        .not("id", "in", `(${playedIds.join(",")})`);
+      if ((count ?? 0) > 0) setScopeStore("new");
+    })();
+  }, [user?.id]);
+
   useEffect(() => {
     (async () => {
       let songIds: string[] | null = null;

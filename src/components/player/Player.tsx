@@ -112,14 +112,14 @@ export const Player = () => {
       </div>
 
       <div className="flex flex-col items-center justify-center flex-1 md:w-2/4 max-w-[600px]">
-        <div className="flex items-center gap-4 md:gap-6 mb-1 md:mb-2">
-          <button onClick={toggleShuffle} className={`hidden md:inline-flex transition-colors ${shuffle ? "text-primary" : "text-muted-foreground hover:text-silver"}`} aria-label="Shuffle"><Shuffle className="h-4 w-4" /></button>
+        <div className="flex items-center gap-2 md:gap-6 mb-1 md:mb-2">
+          <button onClick={toggleShuffle} className={`transition-colors ${shuffle ? "text-primary" : "text-muted-foreground hover:text-silver"}`} aria-label="Shuffle"><Shuffle className="h-3.5 w-3.5 md:h-4 md:w-4" /></button>
           <button onClick={prev} className="text-silver hover:text-foreground" aria-label="Previous"><SkipBack className="h-5 w-5" /></button>
           <button onClick={toggle} className="text-primary hover:text-primary/80 hover:scale-105 transition-all drop-shadow-[0_0_8px_hsl(var(--primary)/0.6)]" aria-label={isPlaying ? "Pause" : "Play"}>
             {isPlaying ? <Pause className="h-7 w-7 fill-current" /> : <Play className="h-7 w-7 fill-current" />}
           </button>
           <button onClick={next} className="text-silver hover:text-foreground" aria-label="Next"><SkipForward className="h-5 w-5" /></button>
-          <button onClick={toggleLoop} className={`hidden md:inline-flex transition-colors ${loop ? "text-primary" : "text-muted-foreground hover:text-silver"}`} aria-label="Loop"><Repeat className="h-4 w-4" /></button>
+          <button onClick={toggleLoop} className={`transition-colors ${loop ? "text-primary" : "text-muted-foreground hover:text-silver"}`} aria-label="Loop"><Repeat className="h-3.5 w-3.5 md:h-4 md:w-4" /></button>
         </div>
         <div className="flex items-center gap-2 md:gap-3 w-full">
           <span className="text-[10px] text-muted-foreground tabular-nums w-9 md:w-10 text-right">{fmt(position)}</span>
@@ -128,7 +128,7 @@ export const Player = () => {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-2 md:gap-3 md:w-1/4">
+      <div className="flex items-center justify-end gap-1.5 md:gap-3 md:w-1/4">
         {current && (
           <Sheet open={extrasOpen} onOpenChange={setExtrasOpen}>
             <SheetTrigger asChild>
@@ -185,10 +185,10 @@ export const Player = () => {
             </SheetContent>
           </Sheet>
         )}
-        <button onClick={toggleMute} className="hidden md:inline-flex text-muted-foreground hover:text-foreground transition-colors p-1" aria-label={volume === 0 ? "Unmute" : "Mute"}>
+        <button onClick={toggleMute} className="text-muted-foreground hover:text-foreground transition-colors p-1" aria-label={volume === 0 ? "Unmute" : "Mute"}>
           {volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
-        <Slider min={0} max={1} step={0.01} value={[volume]} onValueChange={(v) => setVolume(v[0])} className="hidden md:block w-24" />
+        {!isIOS && <Slider min={0} max={1} step={0.01} value={[volume]} onValueChange={(v) => setVolume(v[0])} className="hidden md:flex w-24" />}
       </div>
 
       {current && (
