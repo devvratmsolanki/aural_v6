@@ -43,12 +43,8 @@ const Home = () => {
     (async () => {
       let songIds: string[] | null = null;
       if (tags.length > 0) {
-        const { data: rows } = await supabase.from("song_tags").select("song_id, tag_id").in("tag_id", tags);
-        const counts: Record<string, Set<string>> = {};
-        (rows ?? []).forEach((r: any) => {
-          (counts[r.song_id] ||= new Set()).add(r.tag_id);
-        });
-        songIds = Object.entries(counts).filter(([, s]) => s.size === tags.length).map(([id]) => id);
+        const { data: rows } = await supabase.from("song_tags").select("song_id").in("tag_id", tags);
+        songIds = Array.from(new Set((rows ?? []).map((r: any) => r.song_id as string)));
         if (songIds.length === 0) { setSongs([]); return; }
       }
       if (scope === "liked") {
@@ -80,7 +76,7 @@ const Home = () => {
     <div className="space-y-8 animate-fade-in">
       <TagFilter value={tags} onChange={setTags} />
       {tags.length > 1 && (
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-6">Showing songs with all {tags.length} tags</p>
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-6">Showing songs matching any selected genre</p>
       )}
 
       <section>

@@ -100,11 +100,12 @@ export const SongCard = ({ song, queue, size = "lg" }: Props) => {
 };
 
 export const SongRow = ({ song, queue }: Props) => {
-  const { playSong } = usePlayer();
+  const { playSong, current } = usePlayer();
+  const active = current?.id === song.id;
   return (
     <div
       onClick={() => playSong(song, queue)}
-      className="w-full flex items-center gap-3 md:gap-4 bg-popover/40 hover:bg-popover border border-transparent hover:border-border p-3 rounded-sm transition-all group cursor-pointer"
+      className={`w-full flex items-center gap-3 md:gap-4 p-3 rounded-sm transition-all group cursor-pointer border ${active ? "bg-primary/8 border-primary/60 hover:border-primary" : "bg-popover/40 hover:bg-popover border-transparent hover:border-border"}`}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); playSong(song, queue); } }}
@@ -113,7 +114,7 @@ export const SongRow = ({ song, queue }: Props) => {
         <Cover src={song.cover_image} alt="" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">{song.title}</div>
+        <div className={`text-sm font-medium truncate transition-colors ${active ? "text-primary" : "group-hover:text-primary"}`}>{song.title}</div>
         {song.artist && <div className="text-xs text-muted-foreground truncate">{song.artist}</div>}
       </div>
       {song.tag?.name && <span className="text-[10px] uppercase tracking-widest text-muted-foreground bg-popover px-2 py-0.5 rounded-full border border-border">{song.tag.name}</span>}
@@ -125,14 +126,15 @@ export const SongRow = ({ song, queue }: Props) => {
 
 // Polaroid-style card (default home grid). Slight random tilt, white frame, caption underneath the photo.
 export const PolaroidCard = ({ song, queue, index = 0 }: Props & { index?: number }) => {
-  const { playSong } = usePlayer();
+  const { playSong, current } = usePlayer();
+  const active = current?.id === song.id;
   const tilts = ["-rotate-2", "rotate-1", "-rotate-1", "rotate-2", "rotate-0"];
   const tilt = tilts[index % tilts.length];
   return (
-    <div className={`group relative ${tilt} hover:rotate-0 hover:-translate-y-1 transition-transform duration-300 animate-fade-in`}>
+    <div className={`group relative transition-transform duration-300 animate-fade-in ${active ? "rotate-0 -translate-y-1 scale-[1.02]" : `${tilt} hover:rotate-0 hover:-translate-y-1`}`}>
       <button
         onClick={() => playSong(song, queue)}
-        className="block w-full text-left bg-[hsl(35_30%_94%)] p-3 pb-10 rounded-[2px] shadow-[0_10px_30px_-12px_hsl(0_0%_0%/0.6)]"
+        className={`block w-full text-left bg-[hsl(35_30%_94%)] p-3 pb-10 rounded-[2px] shadow-[0_10px_30px_-12px_hsl(0_0%_0%/0.6)] transition-all ${active ? "ring-2 ring-primary ring-offset-2 ring-offset-background shadow-[0_0_20px_hsl(var(--primary)/0.4)]" : ""}`}
         aria-label={`Play ${song.title}`}
       >
         <div className="aspect-square overflow-hidden bg-[hsl(345_30%_55%)]">
