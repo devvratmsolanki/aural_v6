@@ -85,7 +85,9 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     try {
       const url = await resolveAudioUrl(song);
       el.src = url;
-      if (song.play_from) el.currentTime = song.play_from;
+      const start = song.play_from || 0;
+      el.currentTime = start;
+      setPosition(start);
       await el.play();
       logHistory(song);
     } catch (e) {
@@ -124,16 +126,13 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     if (shuffle) {
       setShuffleHistory((h) => [...h, index]);
       n = Math.floor(Math.random() * queue.length);
+      if (n === index && queue.length > 1) n = (n + 1) % queue.length;
     } else {
-      n = index + 1 >= queue.length ? (loop ? 0 : -1) : index + 1;
-    }
-    if (n === -1) {
-      audioRef.current?.pause();
-      return;
+      n = (index + 1) % queue.length;
     }
     setIndex(n);
     loadAndPlay(queue[n]);
-  }, [queue, index, shuffle, loop, loadAndPlay]);
+  }, [queue, index, shuffle, loadAndPlay]);
 
   const prev = useCallback(() => {
     if (queue.length === 0) return;
@@ -164,11 +163,14 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener("aural:ended", handler);
   }, [next, loop, current]);
 
-  // enforce end_at
+  // enforce end_at — read live audio time to avoid stale React state firing
+  // ended right after a song change (which would skip the new song)
   useEffect(() => {
     if (!current?.end_at) return;
-    if (position >= current.end_at) {
-      audioRef.current?.dispatchEvent(new Event("ended"));
+    const el = audioRef.current;
+    if (!el || el.paused) return;
+    if (el.currentTime >= current.end_at) {
+      el.dispatchEvent(new Event("ended"));
     }
   }, [position, current]);
 
