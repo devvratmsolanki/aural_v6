@@ -3,14 +3,16 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Song } from "@/types/music";
 import { SongRow, PolaroidCard } from "@/components/music/SongCard";
 import { TagFilter } from "@/components/music/TagFilter";
-import { List, Image as ImageIcon } from "lucide-react";
+import { List, Image as ImageIcon, Shuffle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 type View = "polaroid" | "list";
 type Scope = "all" | "new" | "liked";
 
 const Home = () => {
   const { user } = useAuth();
+  const { playShuffle } = usePlayer();
   const [tags, setTags] = useState<string[]>([]);
   const [songs, setSongs] = useState<Song[]>([]);
   const [view, setView] = useState<View>(() => {
@@ -22,7 +24,7 @@ const Home = () => {
   const setAndStore = (v: View) => { setView(v); localStorage.setItem("home:view", v); };
   const setScopeStore = (s: Scope) => { setScope(s); localStorage.setItem("home:scope", s); };
 
-  // On each browser session, if there are unplayed songs switch to "Newly added" tab
+  // On each browser session, if there are unplayed songs switch to "New" tab
   useEffect(() => {
     if (!user) return;
     const sessionKey = `aural:new-check:${user.id}`;
@@ -83,8 +85,17 @@ const Home = () => {
         <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
           <div className="flex items-center gap-1 bg-popover/60 border border-border rounded-full p-1 overflow-x-auto">
             <Tab k="all" label="All" />
-            <Tab k="new" label="Newly added" />
+            <Tab k="new" label="New" />
             <Tab k="liked" label="My favs" />
+            <button
+              onClick={() => songs.length && playShuffle(songs)}
+              disabled={songs.length === 0}
+              aria-label="Shuffle play"
+              title="Shuffle play"
+              className="size-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:text-muted-foreground"
+            >
+              <Shuffle className="h-4 w-4" />
+            </button>
           </div>
           <div className="flex items-center gap-1 bg-popover/60 border border-border rounded-full p-1">
             <button onClick={() => setAndStore("polaroid")} aria-label="Polaroid view" className={`size-8 rounded-full flex items-center justify-center transition-colors ${view === "polaroid" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}><ImageIcon className="h-4 w-4" /></button>

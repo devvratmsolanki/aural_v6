@@ -33,6 +33,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const [queue, setQueue] = useState<Song[]>([]);
   const [index, setIndex] = useState(-1);
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
+  // Unplayed indices for the current shuffle cycle. Drains to [] across the
+  // cycle; when empty, next() rebuilds it (Fisher-Yates over all indices) so
+  // no song repeats until every song in the queue has played once.
+  const [shuffleBag, setShuffleBag] = useState<number[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -100,6 +104,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const newIndex = newQueue.findIndex((s) => s.id === song.id);
     setQueue(newQueue);
     setShuffleHistory([]);
+    setShuffleBag([]);
     setIndex(newIndex >= 0 ? newIndex : 0);
     await loadAndPlay(newQueue[newIndex >= 0 ? newIndex : 0]);
   }, [loadAndPlay]);
@@ -111,6 +116,14 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const n = Math.floor(Math.random() * list.length);
     setQueue(list);
     setIndex(n);
+    // Seed the bag with every other index, Fisher-Yates shuffled, so the next
+    // (list.length - 1) plays cover the rest of the queue with no repeats.
+    const rest = Array.from({ length: list.length }, (_, i) => i).filter((i) => i !== n);
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    setShuffleBag(rest);
     await loadAndPlay(list[n]);
   }, [loadAndPlay]);
 
@@ -125,14 +138,28 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     let n: number;
     if (shuffle) {
       setShuffleHistory((h) => [...h, index]);
-      n = Math.floor(Math.random() * queue.length);
-      if (n === index && queue.length > 1) n = (n + 1) % queue.length;
+      if (queue.length === 1) {
+        n = index;
+      } else if (shuffleBag.length > 0) {
+        n = shuffleBag[0];
+        setShuffleBag((b) => b.slice(1));
+      } else {
+        // Cycle exhausted — refill the bag with every index except the current
+        // one, Fisher-Yates shuffled. Pop the first as next, keep the rest.
+        const rest = Array.from({ length: queue.length }, (_, i) => i).filter((i) => i !== index);
+        for (let i = rest.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [rest[i], rest[j]] = [rest[j], rest[i]];
+        }
+        n = rest[0];
+        setShuffleBag(rest.slice(1));
+      }
     } else {
       n = (index + 1) % queue.length;
     }
     setIndex(n);
     loadAndPlay(queue[n]);
-  }, [queue, index, shuffle, loadAndPlay]);
+  }, [queue, index, shuffle, shuffleBag, loadAndPlay]);
 
   const prev = useCallback(() => {
     if (queue.length === 0) return;
