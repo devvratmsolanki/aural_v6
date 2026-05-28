@@ -59,6 +59,26 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
 
   const current = index >= 0 ? queue[index] ?? null : null;
 
+  // Fully-guarded Media Session metadata setter. Called both from the render
+  // effect AND eagerly from loadAndPlay, so the lock-screen controls + title
+  // appear the instant playback starts (the gesture turn) rather than a render
+  // cycle later — which is what keeps the media session "active" across a
+  // screen-lock. Every step is wrapped so an unsupported MediaMetadata or a
+  // bad artwork entry can never break playback.
+  const applyMediaMetadata = useCallback((song: Song) => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (typeof MediaMetadata === "undefined") return;
+    try {
+      const art = song.cover_image ? coverUrl(song.cover_image) : "";
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.title || "",
+        artist: song.artist || "",
+        album: "AURAL",
+        artwork: art ? [{ src: art, sizes: "512x512", type: "image/png" }] : [],
+      });
+    } catch { /* ignore */ }
+  }, []);
+
   // init audio element once
   useEffect(() => {
     const el = new Audio();
@@ -68,16 +88,48 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     el.setAttribute("playsinline", "");
     (el as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
     el.volume = volume;
+    // Attach the element to the DOM (hidden). A detached `new Audio()` is
+    // treated less reliably by some mobile browsers for background / locked-
+    // screen playback; an in-document media element is more likely to hold its
+    // audio focus when the page is frozen. Removed again on cleanup.
+    el.style.display = "none";
+    el.setAttribute("aria-hidden", "true");
+    try { document.body.appendChild(el); } catch { /* SSR / no body */ }
     audioRef.current = el;
+    // Auto-resume throttle. A background pause can fire repeatedly, and a
+    // genuinely dead stream must not spin forever — so we cap retries and rate-
+    // limit them. The budget resets on every successful (real) `play`.
+    let resumeAttempts = 0;
+    let lastResumeAt = 0;
     const onTime = () => { lastPositionRef.current = el.currentTime; setPosition(el.currentTime); };
     const onLoaded = () => setDuration(el.duration || 0);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onPlay = () => { setIsPlaying(true); resumeAttempts = 0; };
     const onEnded = () => {
       // handled by next() via effect
       setIsPlaying(false);
+      // End-of-track: never auto-resume here — block the pause handler's resume
+      // and hand off to the aural:ended -> next()/loop flow.
+      resumeAttempts = Number.POSITIVE_INFINITY;
       // trigger next via custom event
       window.dispatchEvent(new CustomEvent("aural:ended"));
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      // Guarded auto-resume: the OS/browser may pause our element when the
+      // screen locks or the page is frozen in the background. Re-assert
+      // playback only when the user still wants it and the track is mid-stream.
+      if (!wantsToPlayRef.current) return;        // user/logout/stop paused on purpose
+      if (el.ended) return;                       // natural end -> let next() run
+      // If duration is known, don't resume at/after the end (where `ended` may
+      // arrive a beat after this `pause`), or we'd replay a finished track and
+      // fight next()/end_at.
+      if (Number.isFinite(el.duration) && el.duration > 0 && el.currentTime >= el.duration - 0.5) return;
+      const now = Date.now();
+      if (now - lastResumeAt < 1000) return;      // throttle bursts
+      if (resumeAttempts >= 5) return;            // give up on a dead stream
+      resumeAttempts += 1;
+      lastResumeAt = now;
+      el.play().catch(() => { /* needs gesture / dead stream — ignore */ });
     };
     // A signed audio URL can expire mid-playback (cached ~55min, token ~60min);
     // the element then errors and stalls. Re-sign and resume from where we were.
@@ -113,6 +165,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
       el.removeEventListener("error", onError);
+      try { el.remove(); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -128,19 +181,27 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const el = audioRef.current;
     if (!el) return;
     try {
+      // Set lock-screen metadata + playing state BEFORE the (async) play
+      // resolves, while still inside the user-gesture turn. Android shows the
+      // controls immediately and treats the session as active, which is what
+      // lets audio survive the screen lock.
+      wantsToPlayRef.current = true;
+      applyMediaMetadata(song);
+      if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+        try { navigator.mediaSession.playbackState = "playing"; } catch { /* ignore */ }
+      }
       const url = await resolveAudioUrl(song);
       el.src = url;
       const start = song.play_from || 0;
       el.currentTime = start;
       setPosition(start);
       endAtFiredForRef.current = null;
-      wantsToPlayRef.current = true;
       await el.play();
       logHistory(song);
     } catch (e) {
       console.error("playback error", e);
     }
-  }, [logHistory]);
+  }, [logHistory, applyMediaMetadata]);
 
   const playSong = useCallback(async (song: Song, list?: Song[]) => {
     const newQueue = list && list.length ? list : [song];
@@ -305,18 +366,11 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
     if (!current) {
-      navigator.mediaSession.metadata = null;
+      try { navigator.mediaSession.metadata = null; } catch { /* ignore */ }
       return;
     }
-    if (typeof MediaMetadata === "undefined") return;
-    const art = current.cover_image ? coverUrl(current.cover_image) : "";
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: current.title,
-      artist: current.artist || "",
-      album: "AURAL",
-      artwork: art ? [{ src: art, sizes: "512x512", type: "image/png" }] : [],
-    });
-  }, [current]);
+    applyMediaMetadata(current);
+  }, [current, applyMediaMetadata]);
 
   // Mirror play/pause into the OS media session so the lock-screen control
   // shows the right state. (Driven by the React `isPlaying` state, which the
