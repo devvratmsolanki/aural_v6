@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
     // Voice notes — files + rows
     const { data: vn } = await admin.from("song_voice_notes").select("file_path").eq("song_id", song_id);
-    const vnPaths = (vn ?? []).map((r: any) => r.file_path).filter(Boolean);
+    const vnPaths = (vn ?? []).map((r) => r.file_path).filter(Boolean);
     if (vnPaths.length) await admin.storage.from("voice-notes").remove(vnPaths);
 
     // Storage cleanup for the song itself
@@ -55,8 +55,8 @@ Deno.serve(async (req) => {
     if (delErr) throw delErr;
 
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } });
-  } catch (e: any) {
+  } catch (e) {
     console.error("admin-delete-song error", e);
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }
 });

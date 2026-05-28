@@ -145,7 +145,7 @@ export const Player = () => {
                   </SheetTitle>
                 </SheetHeader>
               </div>
-              <Tabs value={extrasTab} onValueChange={(v) => setExtrasTab(v as any)} className="flex-1 flex flex-col min-h-0">
+              <Tabs value={extrasTab} onValueChange={(v) => setExtrasTab(v as "lyrics" | "notes")} className="flex-1 flex flex-col min-h-0">
                 <TabsList className="grid grid-cols-2 mx-6 mt-4 shrink-0">
                   <TabsTrigger value="lyrics"><Mic2 className="h-3.5 w-3.5 mr-1.5" /> Lyrics {timed && <span className="ml-1.5 text-[9px] text-primary">●</span>}</TabsTrigger>
                   <TabsTrigger value="notes"><StickyNote className="h-3.5 w-3.5 mr-1.5" /> Notes</TabsTrigger>

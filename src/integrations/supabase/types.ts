@@ -78,6 +78,50 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          read_at: string | null
+          recipient_id: string
+          sender_id: string
+          sender_name: string
+          song_id: string
+          song_title: string
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id: string
+          sender_id: string
+          sender_name?: string
+          song_id: string
+          song_title?: string
+          type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id?: string
+          sender_id?: string
+          sender_name?: string
+          song_id?: string
+          song_title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_song_id_fkey"
+            columns: ["song_id"]
+            isOneToOne: false
+            referencedRelation: "songs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       play_history: {
         Row: {
           id: string

@@ -18,7 +18,7 @@ const Search = () => {
       supabase.from("songs").select("*, tag:tags(id,name)").eq("status", "active")
         .or(`title.ilike.%${term}%,artist.ilike.%${term}%`)
         .limit(50)
-        .then(({ data }) => setResults((data as any) ?? []));
+        .then(({ data }) => setResults((data as unknown as Song[]) ?? []));
     }, 250);
     return () => clearTimeout(t);
   }, [q, setParams]);

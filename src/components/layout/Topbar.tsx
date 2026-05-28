@@ -70,8 +70,10 @@ export const Topbar = () => {
   const markAllRead = async () => {
     const unread = notifs.filter((n) => !n.read_at).map((n) => n.id);
     if (!unread.length) return;
-    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).in("id", unread);
-    setNotifs((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })));
+    const ts = new Date().toISOString();
+    const { error } = await supabase.from("notifications").update({ read_at: ts }).in("id", unread);
+    if (error) return; // leave them unread; next open retries
+    setNotifs((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? ts })));
   };
 
   const dismiss = async (id: string) => {

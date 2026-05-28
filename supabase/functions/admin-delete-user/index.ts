@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     const { error } = await adminClient.auth.admin.deleteUser(user_id);
     if (error) throw error;
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }
 });

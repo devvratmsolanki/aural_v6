@@ -3,12 +3,12 @@ import type { Song } from "@/types/music";
 
 const urlCache = new Map<string, { url: string; exp: number }>();
 
-export async function resolveAudioUrl(song: Song): Promise<string> {
+export async function resolveAudioUrl(song: Song, forceRefresh = false): Promise<string> {
   // If already a full URL, return as is.
   if (/^https?:\/\//i.test(song.file_path)) return song.file_path;
 
   const cached = urlCache.get(song.file_path);
-  if (cached && cached.exp > Date.now()) return cached.url;
+  if (!forceRefresh && cached && cached.exp > Date.now()) return cached.url;
 
   const { data, error } = await supabase.storage.from("audio").createSignedUrl(song.file_path, 60 * 60);
   if (error || !data) throw error ?? new Error("Could not sign audio URL");

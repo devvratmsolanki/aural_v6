@@ -51,13 +51,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        supabase.from("user_roles").select("role").eq("user_id", s.user.id).then(({ data }) => {
-          setIsAdmin(!!data?.some((r) => r.role === "admin"));
-        });
+        // Resolve the role BEFORE clearing `loading`, otherwise guarded routes
+        // render with isAdmin=false for a tick and flash a redirect for admins.
+        const { data } = await supabase.from("user_roles").select("role").eq("user_id", s.user.id);
+        setIsAdmin(!!data?.some((r) => r.role === "admin"));
         fetchProfile(s.user.id);
       }
       setLoading(false);

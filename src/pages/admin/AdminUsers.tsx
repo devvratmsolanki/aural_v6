@@ -27,7 +27,7 @@ const AdminUsers = () => {
     ]);
     const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
     const playlistCount: Record<string, number> = {};
-    (allPlaylists ?? []).forEach((p: any) => { playlistCount[p.user_id] = (playlistCount[p.user_id] ?? 0) + 1; });
+    (allPlaylists ?? []).forEach((p) => { playlistCount[p.user_id] = (playlistCount[p.user_id] ?? 0) + 1; });
     const out = (profiles ?? []).map((p) => ({
       ...p,
       playlists: playlistCount[p.id] ?? 0,
@@ -47,7 +47,8 @@ const AdminUsers = () => {
     if (r.isAdmin || r.id === user?.id) return;
     if (!confirm(`Delete ${r.name ?? "this user"}? This removes all their data.`)) return;
     const { data, error } = await supabase.functions.invoke("admin-delete-user", { body: { user_id: r.id } });
-    if (error || (data as any)?.error) toast.error(error?.message ?? (data as any).error);
+    const result = data as { error?: string } | null;
+    if (error || result?.error) toast.error(error?.message ?? result?.error);
     else { toast.success("User deleted"); load(); }
   };
 
@@ -61,10 +62,15 @@ const AdminUsers = () => {
     setBusy(false);
     if (error) {
       let msg = error.message;
-      try { const body = await (error as any).context?.json?.(); if (body?.error) msg = body.error; } catch {}
+      try {
+        const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
+        const body = await ctx?.json?.();
+        if (body?.error) msg = body.error;
+      } catch { /* response body not JSON; keep generic message */ }
       toast.error(msg); return;
     }
-    if ((data as any)?.error) { toast.error((data as any).error); return; }
+    const result = data as { error?: string } | null;
+    if (result?.error) { toast.error(result.error); return; }
     toast.success("User created");
     setOpen(false); setForm({ name: "", username: "", password: "", admin: false }); load();
   };
@@ -80,7 +86,7 @@ const AdminUsers = () => {
             <div className="space-y-3">
               <div><Label>Display name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} placeholder="lowercase letters, numbers" /></div>
-              <div><Label>Password</Label><Input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 characters" /></div>
+              <div><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 characters" /></div>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.admin} onChange={(e) => setForm({ ...form, admin: e.target.checked })} /> Make this user an admin</label>
             </div>
             <div className="flex justify-end gap-2 mt-4">

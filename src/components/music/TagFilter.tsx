@@ -12,8 +12,8 @@ export const TagFilter = ({ value, onChange }: Props) => {
         supabase.from("tags").select("*").order("name"),
         supabase.from("song_tags").select("tag_id"),
       ]);
-      const usedIds = new Set((used ?? []).map((r: any) => r.tag_id));
-      setTags((allTags ?? []).filter((t: any) => usedIds.has(t.id)));
+      const usedIds = new Set((used ?? []).map((r) => r.tag_id));
+      setTags((allTags ?? []).filter((t) => usedIds.has(t.id)));
     })();
   }, []);
   const toggle = (id: string) => {

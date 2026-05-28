@@ -13,7 +13,7 @@ const AdminAnalytics = () => {
       const { data: hist } = await supabase.from("play_history").select("song_id, song:songs(title, tag:tags(name))").order("played_at", { ascending: false }).limit(2000);
       const songMap = new Map<string, Row>();
       const tagMap = new Map<string, Row>();
-      (hist ?? []).forEach((r: any) => {
+      (hist ?? []).forEach((r) => {
         const title = r.song?.title;
         if (title) { const cur = songMap.get(title) ?? { name: title, count: 0 }; cur.count++; songMap.set(title, cur); }
         const tname = r.song?.tag?.name;
@@ -24,7 +24,7 @@ const AdminAnalytics = () => {
 
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const { data: ua } = await supabase.from("play_history").select("user_id").gte("played_at", since);
-      setActiveUsers(new Set((ua ?? []).map((r: any) => r.user_id)).size);
+      setActiveUsers(new Set((ua ?? []).map((r) => r.user_id)).size);
     })();
   }, []);
 

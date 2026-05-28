@@ -57,15 +57,13 @@ BEGIN
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'username', split_part(NEW.email,'@',1)),
     NEW.raw_user_meta_data->>'avatar_url'
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
 
-  IF COALESCE((NEW.raw_user_meta_data->>'is_admin')::boolean, false) = true THEN
-    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin')
-    ON CONFLICT (user_id, role) DO NOTHING;
-  ELSE
-    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user')
-    ON CONFLICT (user_id, role) DO NOTHING;
-  END IF;
+  -- SECURITY: never trust client-controlled signup metadata for roles.
+  -- All new users get 'user'; admin is granted only via service-role paths.
+  INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user')
+  ON CONFLICT (user_id, role) DO NOTHING;
 
   RETURN NEW;
 END $$;
@@ -884,7 +882,7 @@ CREATE POLICY "users see own playlists" ON public.playlists FOR SELECT TO authen
 -- Name: song_letters users update letters to unlock; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "users update letters to unlock" ON public.song_letters FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "authors update own letters" ON public.song_letters FOR UPDATE TO authenticated USING ((auth.uid() = author_id)) WITH CHECK ((auth.uid() = author_id));
 
 
 --

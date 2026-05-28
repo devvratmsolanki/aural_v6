@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { resolveAudioUrl } from "@/lib/storage";
+import { resolveAudioUrl, coverUrl } from "@/lib/storage";
 import type { Song } from "@/types/music";
 import { useAuth } from "./AuthContext";
 
@@ -30,6 +30,19 @@ const Ctx = createContext<PlayerCtx | undefined>(undefined);
 export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The user's *intent* to be playing. Distinct from `isPlaying`, which mirrors
+  // the element's real state and gets flipped to false when a mobile browser
+  // pauses us in the background — we must not treat that as "user paused".
+  const wantsToPlayRef = useRef(false);
+  // Id of the song whose end_at has already fired `ended`, so a stray
+  // timeupdate tick during the song transition can't fire it twice (which
+  // would instantly skip the next song). Cleared on each new load / loop rewind.
+  const endAtFiredForRef = useRef<string | null>(null);
+  // Refs read by the (mount-once) audio `error` handler, which can't close over
+  // reactive state. Used to re-sign an expired signed URL and resume in place.
+  const currentRef = useRef<Song | null>(null);
+  const lastPositionRef = useRef(0);
+  const lastRecoverAtRef = useRef(0);
   const [queue, setQueue] = useState<Song[]>([]);
   const [index, setIndex] = useState(-1);
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
@@ -50,9 +63,13 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const el = new Audio();
     el.preload = "metadata";
+    // Hint to mobile browsers that this is inline media playback, not a
+    // fullscreen video — keeps the element eligible to play in the background.
+    el.setAttribute("playsinline", "");
+    (el as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
     el.volume = volume;
     audioRef.current = el;
-    const onTime = () => setPosition(el.currentTime);
+    const onTime = () => { lastPositionRef.current = el.currentTime; setPosition(el.currentTime); };
     const onLoaded = () => setDuration(el.duration || 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
@@ -62,11 +79,32 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       // trigger next via custom event
       window.dispatchEvent(new CustomEvent("aural:ended"));
     };
+    // A signed audio URL can expire mid-playback (cached ~55min, token ~60min);
+    // the element then errors and stalls. Re-sign and resume from where we were.
+    // Throttled so a genuinely broken file can't spin in a retry loop.
+    const onError = () => {
+      const song = currentRef.current;
+      const code = el.error?.code;
+      const recoverable = code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+      if (!song || !wantsToPlayRef.current || !recoverable) return;
+      if (/^https?:\/\//i.test(song.file_path)) return; // external URL, nothing to re-sign
+      if (Date.now() - lastRecoverAtRef.current < 5000) return;
+      lastRecoverAtRef.current = Date.now();
+      const resumeAt = lastPositionRef.current;
+      resolveAudioUrl(song, true)
+        .then((url) => {
+          el.src = url;
+          el.currentTime = resumeAt;
+          return el.play();
+        })
+        .catch((e) => console.error("audio recovery failed", e));
+    };
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onLoaded);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnded);
+    el.addEventListener("error", onError);
     return () => {
       el.pause();
       el.removeEventListener("timeupdate", onTime);
@@ -74,9 +112,12 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
+      el.removeEventListener("error", onError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => { currentRef.current = current; }, [current]);
 
   const logHistory = useCallback(async (song: Song) => {
     if (!user) return;
@@ -92,6 +133,8 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       const start = song.play_from || 0;
       el.currentTime = start;
       setPosition(start);
+      endAtFiredForRef.current = null;
+      wantsToPlayRef.current = true;
       await el.play();
       logHistory(song);
     } catch (e) {
@@ -130,7 +173,8 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const toggle = useCallback(() => {
     const el = audioRef.current;
     if (!el || !current) return;
-    if (el.paused) el.play(); else el.pause();
+    if (el.paused) { wantsToPlayRef.current = true; el.play(); }
+    else { wantsToPlayRef.current = false; el.pause(); }
   }, [current]);
 
   const next = useCallback(() => {
@@ -181,6 +225,9 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       if (loop && current) {
         const el = audioRef.current!;
         el.currentTime = current.play_from || 0;
+        // Allow end_at to fire again on the next loop pass.
+        endAtFiredForRef.current = null;
+        wantsToPlayRef.current = true;
         el.play();
       } else {
         next();
@@ -196,18 +243,19 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     if (!current?.end_at) return;
     const el = audioRef.current;
     if (!el || el.paused) return;
-    if (el.currentTime >= current.end_at) {
+    if (el.currentTime >= current.end_at && endAtFiredForRef.current !== current.id) {
+      endAtFiredForRef.current = current.id;
       el.dispatchEvent(new Event("ended"));
     }
   }, [position, current]);
 
   // stop on logout — react to auth state and the custom event
   useEffect(() => {
-    if (!user) audioRef.current?.pause();
+    if (!user) { wantsToPlayRef.current = false; audioRef.current?.pause(); }
   }, [user]);
 
   useEffect(() => {
-    const handler = () => { audioRef.current?.pause(); };
+    const handler = () => { wantsToPlayRef.current = false; audioRef.current?.pause(); };
     window.addEventListener("aural:stop", handler);
     return () => window.removeEventListener("aural:stop", handler);
   }, []);
@@ -219,6 +267,97 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     setVolumeState(v);
     if (audioRef.current) audioRef.current.volume = v;
   };
+
+  // --- Media Session API ---------------------------------------------------
+  // Registering metadata + action handlers makes mobile browsers treat the
+  // page as an active media session. Without it the OS aggressively pauses /
+  // throttles "background" audio once the screen locks or the device idles,
+  // which is the root cause of playback stopping after a few minutes on
+  // Android. This also wires up the lock-screen / notification controls.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+
+    ms.setActionHandler("play", () => { wantsToPlayRef.current = true; audioRef.current?.play().catch(() => {}); });
+    ms.setActionHandler("pause", () => { wantsToPlayRef.current = false; audioRef.current?.pause(); });
+    ms.setActionHandler("previoustrack", () => prev());
+    ms.setActionHandler("nexttrack", () => next());
+    ms.setActionHandler("seekto", (details) => {
+      if (typeof details.seekTime === "number") seek(details.seekTime);
+    });
+    ms.setActionHandler("seekforward", (details) => {
+      const el = audioRef.current;
+      if (el) seek(Math.min((el.duration || el.currentTime), el.currentTime + (details.seekOffset || 10)));
+    });
+    ms.setActionHandler("seekbackward", (details) => {
+      const el = audioRef.current;
+      if (el) seek(Math.max(0, el.currentTime - (details.seekOffset || 10)));
+    });
+
+    return () => {
+      // Best-effort teardown; some browsers throw on unknown actions.
+      (["play", "pause", "previoustrack", "nexttrack", "seekto", "seekforward", "seekbackward"] as const)
+        .forEach((a) => { try { ms.setActionHandler(a, null); } catch { /* noop */ } });
+    };
+  }, [next, prev]);
+
+  // Keep lock-screen metadata in sync with the current track.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (!current) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    if (typeof MediaMetadata === "undefined") return;
+    const art = current.cover_image ? coverUrl(current.cover_image) : "";
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: current.title,
+      artist: current.artist || "",
+      album: "AURAL",
+      artwork: art ? [{ src: art, sizes: "512x512", type: "image/png" }] : [],
+    });
+  }, [current]);
+
+  // Mirror play/pause into the OS media session so the lock-screen control
+  // shows the right state. (Driven by the React `isPlaying` state, which the
+  // audio element's play/pause events update.)
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
+  // Report playback position so the lock-screen scrubber tracks correctly.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (typeof navigator.mediaSession.setPositionState !== "function") return;
+    if (!current || !duration || !isFinite(duration)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(position, duration),
+        playbackRate: audioRef.current?.playbackRate || 1,
+      });
+    } catch { /* setPositionState throws if values are inconsistent — ignore */ }
+  }, [position, duration, current]);
+
+  // --- Resume after backgrounding -----------------------------------------
+  // When the tab returns to the foreground (unlock / re-focus), some mobile
+  // browsers leave the element paused/stalled. We check `wantsToPlayRef` (the
+  // user's intent) rather than `isPlaying` — the latter is flipped to false by
+  // the element's own `pause` event when the browser suspends us in the
+  // background, which would make this resume a no-op. Guarded so we never
+  // fight an intentional pause.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const el = audioRef.current;
+      if (el && wantsToPlayRef.current && el.paused) {
+        el.play().catch(() => { /* may need a user gesture; ignore */ });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   return (
     <Ctx.Provider

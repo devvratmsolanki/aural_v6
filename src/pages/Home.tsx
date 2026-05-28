@@ -10,6 +10,11 @@ import { usePlayer } from "@/contexts/PlayerContext";
 type View = "polaroid" | "list";
 type Scope = "all" | "new" | "liked";
 
+// Only UUID-shaped ids are interpolated into PostgREST `in (...)` filters, so a
+// stray value can never alter the filter expression.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuidList = (ids: string[]) => ids.filter((id) => UUID_RE.test(id));
+
 const Home = () => {
   const { user } = useAuth();
   const { playShuffle } = usePlayer();
@@ -32,7 +37,7 @@ const Home = () => {
     sessionStorage.setItem(sessionKey, "1");
     (async () => {
       const { data: played } = await supabase.from("play_history").select("song_id").eq("user_id", user.id);
-      const playedIds = (played ?? []).map((r: any) => r.song_id as string);
+      const playedIds = uuidList((played ?? []).map((r) => r.song_id as string));
       if (playedIds.length === 0) { setScopeStore("new"); return; }
       const { count } = await supabase.from("songs").select("id", { count: "exact", head: true })
         .eq("status", "active")
@@ -46,13 +51,13 @@ const Home = () => {
       let songIds: string[] | null = null;
       if (tags.length > 0) {
         const { data: rows } = await supabase.from("song_tags").select("song_id").in("tag_id", tags);
-        songIds = Array.from(new Set((rows ?? []).map((r: any) => r.song_id as string)));
+        songIds = Array.from(new Set((rows ?? []).map((r) => r.song_id as string)));
         if (songIds.length === 0) { setSongs([]); return; }
       }
       if (scope === "liked") {
         if (!user) { setSongs([]); return; }
         const { data } = await supabase.from("favorites").select("song:songs(*, tag:tags(id,name))").eq("user_id", user.id).order("created_at", { ascending: false });
-        let list = ((data ?? []).map((r: any) => r.song).filter(Boolean)) as Song[];
+        let list = ((data ?? []).map((r) => r.song).filter(Boolean)) as unknown as Song[];
         if (songIds) list = list.filter((s) => songIds!.includes(s.id));
         setSongs(list);
         return;
@@ -60,13 +65,13 @@ const Home = () => {
       let excludeIds: string[] = [];
       if (scope === "new") {
         const { data: played } = await supabase.from("play_history").select("song_id");
-        excludeIds = Array.from(new Set((played ?? []).map((r: any) => r.song_id)));
+        excludeIds = uuidList(Array.from(new Set((played ?? []).map((r) => r.song_id as string))));
       }
       let q = supabase.from("songs").select("*, tag:tags(id,name)").eq("status", "active").order("created_at", { ascending: false }).limit(48);
       if (songIds) q = q.in("id", songIds);
       if (excludeIds.length) q = q.not("id", "in", `(${excludeIds.join(",")})`);
       const { data } = await q;
-      setSongs((data as any) ?? []);
+      setSongs((data as unknown as Song[]) ?? []);
     })();
   }, [tags, scope, user]);
 

@@ -20,10 +20,24 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // SECURITY: this function is unauthenticated (verify_jwt = false) so it can
+    // seed the very first admin. Once an admin exists it must be a no-op —
+    // otherwise anyone on the internet could POST here to reset the admin
+    // password to the seed value and take over the account.
+    const { count: adminCount } = await admin
+      .from("user_roles")
+      .select("user_id", { count: "exact", head: true })
+      .eq("role", "admin");
+    if ((adminCount ?? 0) > 0) {
+      return new Response(JSON.stringify({ ok: true, skipped: "admin already exists" }), {
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: list, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
     if (listErr) throw listErr;
 
-    const out: any[] = [];
+    const out: { username: string; password: string; role: string }[] = [];
     for (const acc of ACCOUNTS) {
       const email = `${acc.username}@mysunshine.local`;
       const existing = list.users.find((u) => u.email === email);
@@ -32,14 +46,14 @@ Deno.serve(async (req) => {
         const { error } = await admin.auth.admin.updateUserById(existing.id, {
           password: acc.password,
           email_confirm: true,
-          user_metadata: { ...existing.user_metadata, name: acc.name, username: acc.username, is_admin: acc.isAdmin },
+          user_metadata: { ...existing.user_metadata, name: acc.name, username: acc.username },
         });
         if (error) throw error;
         userId = existing.id;
       } else {
         const { data: created, error } = await admin.auth.admin.createUser({
           email, password: acc.password, email_confirm: true,
-          user_metadata: { name: acc.name, username: acc.username, is_admin: acc.isAdmin },
+          user_metadata: { name: acc.name, username: acc.username },
         });
         if (error) throw error;
         userId = created.user!.id;
@@ -53,8 +67,8 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ ok: true, accounts: out }), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), {
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 500, headers: { ...cors, "Content-Type": "application/json" },
     });
   }

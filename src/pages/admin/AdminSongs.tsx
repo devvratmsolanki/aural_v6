@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -97,19 +97,19 @@ const AdminSongs = () => {
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     let q = supabase.from("songs").select("*").order("created_at", { ascending: false });
     if (search) q = q.or(`title.ilike.%${search}%,artist.ilike.%${search}%`);
     const { data } = await q;
-    setSongs((data as any) ?? []);
-  };
-  useEffect(() => { load(); }, [search]);
+    setSongs((data as unknown as Song[]) ?? []);
+  }, [search]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { supabase.from("tags").select("*").order("name").then(({ data }) => setTags(data ?? [])); }, []);
 
   const openNew = () => { setForm(empty); setAudioFile(null); setCoverFile(null); setOpen(true); };
   const openEdit = async (s: Song) => {
     const { data: st } = await supabase.from("song_tags").select("tag_id").eq("song_id", s.id);
-    setForm({ id: s.id, title: s.title, artist: s.artist ?? "", lyrics: s.lyrics ?? "", remarks: s.remarks ?? "", status: s.status, file_path: s.file_path, cover_image: s.cover_image ?? null, tag_ids: (st ?? []).map((r: any) => r.tag_id), play_from: s.play_from ?? 0, end_at: s.end_at ?? null });
+    setForm({ id: s.id, title: s.title, artist: s.artist ?? "", lyrics: s.lyrics ?? "", remarks: s.remarks ?? "", status: s.status, file_path: s.file_path, cover_image: s.cover_image ?? null, tag_ids: (st ?? []).map((r) => r.tag_id), play_from: s.play_from ?? 0, end_at: s.end_at ?? null });
     setAudioFile(null); setCoverFile(null); setOpen(true);
   };
 
@@ -172,10 +172,10 @@ const AdminSongs = () => {
       // Notify all other users immediately when a private note is added or changed
       if (remarksBecameSet && songId && user) {
         const { data: allProfiles } = await supabase.from("profiles").select("id");
-        const recipients = (allProfiles ?? []).filter((p: any) => p.id !== user.id);
+        const recipients = (allProfiles ?? []).filter((p) => p.id !== user.id);
         if (recipients.length) {
           await supabase.from("notifications").insert(
-            recipients.map((p: any) => ({
+            recipients.map((p) => ({
               recipient_id: p.id,
               sender_id: user.id,
               type: "private_note",
@@ -188,8 +188,8 @@ const AdminSongs = () => {
       }
       toast.success(form.id ? "Updated" : "Created");
       setOpen(false); load();
-    } catch (e: any) {
-      toast.error(e.message ?? "Save failed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
     } finally { setBusy(false); }
   };
 
@@ -204,11 +204,12 @@ const AdminSongs = () => {
     try {
       const { data, error } = await supabase.functions.invoke("admin-delete-song", { body: { song_id: s.id } });
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      const result = data as { error?: string } | null;
+      if (result?.error) throw new Error(result.error);
       toast.success("Song deleted", { id: t });
       load();
-    } catch (e: any) {
-      toast.error(e.message ?? "Delete failed", { id: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed", { id: t });
     }
   };
 
@@ -219,11 +220,12 @@ const AdminSongs = () => {
     try {
       const { data, error } = await supabase.functions.invoke("sync-lyrics", { body: { song_id: s.id } });
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
-      toast.success(`Synced ${(data as any)?.lines ?? 0} lines`, { id: t });
+      const result = data as { error?: string; lines?: number } | null;
+      if (result?.error) throw new Error(result.error);
+      toast.success(`Synced ${result?.lines ?? 0} lines`, { id: t });
       load();
-    } catch (e: any) {
-      toast.error(e.message ?? "Sync failed", { id: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed", { id: t });
     } finally { setSyncingId(null); }
   };
 

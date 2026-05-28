@@ -67,7 +67,7 @@ const SongDuration = ({ song }: { song: Song }) => {
           const eff = (song.end_at ?? total) - (song.play_from ?? 0);
           setDur(Math.max(0, eff));
         };
-      } catch {}
+      } catch { /* metadata probe failed; leave duration unknown */ }
     })();
     return () => { cancelled = true; };
   }, [song.id]);

@@ -12,7 +12,7 @@ const Liked = () => {
   useEffect(() => {
     if (!user) return;
     supabase.from("favorites").select("song:songs(*, tag:tags(id,name))").eq("user_id", user.id).order("created_at", { ascending: false })
-      .then(({ data }) => setSongs(((data ?? []).map((r: any) => r.song).filter(Boolean)) as Song[]));
+      .then(({ data }) => setSongs(((data ?? []).map((r) => r.song).filter(Boolean)) as unknown as Song[]));
   }, [user]);
 
   return (

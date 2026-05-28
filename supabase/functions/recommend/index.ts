@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
         .from("favorites")
         .select("song:songs(id, tag_id)")
         .eq("user_id", user.id);
-      (favs ?? []).forEach((r: any) => {
+      (favs ?? []).forEach((r: { song?: { id?: string; tag_id?: string } | null }) => {
         if (r.song?.id) seenSongs.add(r.song.id);
         if (r.song?.tag_id) tagScore[r.song.tag_id] = (tagScore[r.song.tag_id] ?? 0) + 3;
       });
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
         .eq("user_id", user.id)
         .order("played_at", { ascending: false })
         .limit(50);
-      (hist ?? []).forEach((r: any) => {
+      (hist ?? []).forEach((r: { song?: { id?: string; tag_id?: string } | null }) => {
         if (r.song?.id) seenSongs.add(r.song.id);
         if (r.song?.tag_id) tagScore[r.song.tag_id] = (tagScore[r.song.tag_id] ?? 0) + 1;
       });
@@ -49,7 +49,8 @@ Deno.serve(async (req) => {
     const topTags = Object.entries(tagScore).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id);
 
     // Pull candidate songs by top tags
-    let candidates: any[] = [];
+    type Candidate = { id: string; tag_id?: string | null; [key: string]: unknown };
+    let candidates: Candidate[] = [];
     if (topTags.length) {
       const { data } = await supabase
         .from("songs")
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
       .order("played_at", { ascending: false })
       .limit(500);
     const popMap: Record<string, number> = {};
-    (pop ?? []).forEach((r: any) => { popMap[r.song_id] = (popMap[r.song_id] ?? 0) + 1; });
+    (pop ?? []).forEach((r: { song_id: string }) => { popMap[r.song_id] = (popMap[r.song_id] ?? 0) + 1; });
     const popularIds = Object.entries(popMap).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([id]) => id);
     if (popularIds.length) {
       const { data } = await supabase
