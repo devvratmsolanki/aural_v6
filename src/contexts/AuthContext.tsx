@@ -68,8 +68,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchProfile]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    // Block disabled accounts. Only explicitly 'disabled' blocks; null/missing
+    // or any other status is treated as allowed, so the admin can never lock
+    // themselves out due to a missing/unexpected profile row.
+    if (signInData.user) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("status")
+        .eq("id", signInData.user.id)
+        .maybeSingle();
+      if ((prof as { status?: string } | null)?.status === "disabled") {
+        await supabase.auth.signOut();
+        return { error: "Your account has been disabled." };
+      }
+    }
+    return { error: null };
   };
 
   const signUp = async (email: string, password: string, name: string) => {

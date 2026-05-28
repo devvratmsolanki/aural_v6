@@ -29,6 +29,20 @@ const Profile = () => {
 
   const upload = async (file: File) => {
     if (!user) return;
+    // Best-effort: remove the old avatar file before uploading the new one so
+    // stale files don't accumulate in the avatars bucket.
+    if (avatar) {
+      try {
+        // The public URL is of the form: .../storage/v1/object/public/avatars/<path>
+        // Extract everything after "/avatars/" as the storage object path.
+        const marker = "/object/public/avatars/";
+        const idx = avatar.indexOf(marker);
+        if (idx !== -1) {
+          const oldPath = avatar.slice(idx + marker.length);
+          if (oldPath) await supabase.storage.from("avatars").remove([oldPath]);
+        }
+      } catch { /* ignore — old file removal is best-effort */ }
+    }
     const path = `${user.id}/${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
     if (error) { toast.error(error.message); return; }

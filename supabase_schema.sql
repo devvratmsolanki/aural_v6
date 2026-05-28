@@ -376,6 +376,14 @@ ALTER TABLE ONLY public.songs
 
 
 --
+-- Name: songs songs_clip_valid; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.songs
+    ADD CONSTRAINT songs_clip_valid CHECK (end_at IS NULL OR end_at > play_from);
+
+
+--
 -- Name: tags tags_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -846,6 +854,34 @@ CREATE POLICY "users modify own playlist songs" ON public.playlist_songs TO auth
   WHERE ((p.id = playlist_songs.playlist_id) AND (p.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM public.playlists p
   WHERE ((p.id = playlist_songs.playlist_id) AND (p.user_id = auth.uid())))));
+
+
+--
+-- Name: notifications users delete own notifications; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "users delete own notifications" ON public.notifications FOR DELETE TO authenticated USING ((auth.uid() = recipient_id));
+
+
+--
+-- Name: notifications users mark notifications read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "users mark notifications read" ON public.notifications FOR UPDATE TO authenticated USING ((auth.uid() = recipient_id)) WITH CHECK ((auth.uid() = recipient_id));
+
+
+--
+-- Name: notifications users read own notifications; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "users read own notifications" ON public.notifications FOR SELECT TO authenticated USING ((auth.uid() = recipient_id));
+
+
+--
+-- Name: notifications authenticated insert notifications; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "authenticated insert notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK ((auth.uid() = sender_id));
 
 
 --

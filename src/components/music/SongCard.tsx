@@ -48,12 +48,14 @@ const fmtTime = (s: number) => {
 };
 
 const SongDuration = ({ song }: { song: Song }) => {
-  const [dur, setDur] = useState<number>(() => {
-    if (song.end_at && song.end_at > song.play_from) return song.end_at - song.play_from;
-    return 0;
-  });
+  const [dur, setDur] = useState<number>(0);
   useEffect(() => {
-    if (dur > 0) return;
+    // Compute duration synchronously when clip boundaries are known.
+    if (song.end_at != null && song.end_at > (song.play_from ?? 0)) {
+      setDur(song.end_at - (song.play_from ?? 0));
+      return;
+    }
+    // Otherwise probe the audio metadata asynchronously.
     let cancelled = false;
     (async () => {
       try {
@@ -70,7 +72,10 @@ const SongDuration = ({ song }: { song: Song }) => {
       } catch { /* metadata probe failed; leave duration unknown */ }
     })();
     return () => { cancelled = true; };
-  }, [song.id]);
+  // song.play_from and song.end_at must be in deps so edited clip points refresh
+  // the displayed duration without waiting for a full song.id change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song.id, song.play_from, song.end_at]);
   if (!dur) return null;
   return <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{fmtTime(dur)}</span>;
 };

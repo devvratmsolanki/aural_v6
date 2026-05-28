@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Song } from "@/types/music";
 import { SongRow } from "@/components/music/SongCard";
 import { Input } from "@/components/ui/input";
+import { escapeLikePattern } from "@/lib/utils";
 
 const Search = () => {
   const [params, setParams] = useSearchParams();
@@ -15,8 +16,9 @@ const Search = () => {
       const term = q.trim();
       if (!term) { setResults([]); return; }
       setParams({ q: term }, { replace: true });
+      const escaped = escapeLikePattern(term);
       supabase.from("songs").select("*, tag:tags(id,name)").eq("status", "active")
-        .or(`title.ilike.%${term}%,artist.ilike.%${term}%`)
+        .or(`title.ilike.%${escaped}%,artist.ilike.%${escaped}%`)
         .limit(50)
         .then(({ data }) => setResults((data as unknown as Song[]) ?? []));
     }, 250);

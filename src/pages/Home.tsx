@@ -64,7 +64,7 @@ const Home = () => {
       }
       let excludeIds: string[] = [];
       if (scope === "new") {
-        const { data: played } = await supabase.from("play_history").select("song_id");
+        const { data: played } = await supabase.from("play_history").select("song_id").eq("user_id", user!.id).limit(2000);
         excludeIds = uuidList(Array.from(new Set((played ?? []).map((r) => r.song_id as string))));
       }
       let q = supabase.from("songs").select("*, tag:tags(id,name)").eq("status", "active").order("created_at", { ascending: false }).limit(48);

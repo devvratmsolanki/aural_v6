@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { escapeLikePattern } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,7 +100,7 @@ const AdminSongs = () => {
 
   const load = useCallback(async () => {
     let q = supabase.from("songs").select("*").order("created_at", { ascending: false });
-    if (search) q = q.or(`title.ilike.%${search}%,artist.ilike.%${search}%`);
+    if (search) { const esc = escapeLikePattern(search); q = q.or(`title.ilike.%${esc}%,artist.ilike.%${esc}%`); }
     const { data } = await q;
     setSongs((data as unknown as Song[]) ?? []);
   }, [search]);
@@ -115,6 +116,9 @@ const AdminSongs = () => {
 
   const save = async () => {
     if (!form.title.trim()) { toast.error("Title required"); return; }
+    if (form.end_at !== null && form.end_at <= form.play_from) {
+      toast.error("End at must be greater than Play from"); return;
+    }
     if (audioFile) {
       const extOk = /\.mp3$/i.test(audioFile.name);
       const mimeOk = audioFile.type === "" || audioFile.type === "audio/mpeg" || audioFile.type === "audio/mp3";

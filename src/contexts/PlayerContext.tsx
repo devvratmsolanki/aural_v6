@@ -43,6 +43,9 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const currentRef = useRef<Song | null>(null);
   const lastPositionRef = useRef(0);
   const lastRecoverAtRef = useRef(0);
+  // Timer ref for the 4-second minimum-listen guard before logging play history.
+  // Cleared on every new loadAndPlay call so rapid skips don't produce spurious rows.
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [queue, setQueue] = useState<Song[]>([]);
   const [index, setIndex] = useState(-1);
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
@@ -124,6 +127,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       // arrive a beat after this `pause`), or we'd replay a finished track and
       // fight next()/end_at.
       if (Number.isFinite(el.duration) && el.duration > 0 && el.currentTime >= el.duration - 0.5) return;
+      // If this is a clipped track and we're within 0.5s of the clip end, don't
+      // resume — the end_at enforcer will fire `ended` and hand off to next().
+      const endAt = currentRef.current?.end_at;
+      if (endAt != null && el.currentTime >= endAt - 0.5) return;
       const now = Date.now();
       if (now - lastResumeAt < 1000) return;      // throttle bursts
       if (resumeAttempts >= 5) return;            // give up on a dead stream
@@ -137,7 +144,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const onError = () => {
       const song = currentRef.current;
       const code = el.error?.code;
-      const recoverable = code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+      // Only attempt re-sign recovery for network errors (expired signed URL).
+      // MEDIA_ERR_SRC_NOT_SUPPORTED is a decode/format error — re-signing the
+      // URL won't help and would just spin a useless recovery loop.
+      const recoverable = code === MediaError.MEDIA_ERR_NETWORK;
       if (!song || !wantsToPlayRef.current || !recoverable) return;
       if (/^https?:\/\//i.test(song.file_path)) return; // external URL, nothing to re-sign
       if (Date.now() - lastRecoverAtRef.current < 5000) return;
@@ -166,6 +176,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       el.removeEventListener("ended", onEnded);
       el.removeEventListener("error", onError);
       try { el.remove(); } catch { /* ignore */ }
+      if (historyTimerRef.current !== null) {
+        clearTimeout(historyTimerRef.current);
+        historyTimerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -180,6 +194,11 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const loadAndPlay = useCallback(async (song: Song) => {
     const el = audioRef.current;
     if (!el) return;
+    // Cancel any pending history log from a previous song (rapid skip guard).
+    if (historyTimerRef.current !== null) {
+      clearTimeout(historyTimerRef.current);
+      historyTimerRef.current = null;
+    }
     try {
       // Set lock-screen metadata + playing state BEFORE the (async) play
       // resolves, while still inside the user-gesture turn. Android shows the
@@ -197,7 +216,12 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       setPosition(start);
       endAtFiredForRef.current = null;
       await el.play();
-      logHistory(song);
+      // Only log play history after 4 s of continuous listening, so rapid skips
+      // don't spam the table and pollute the "New" tab / analytics.
+      historyTimerRef.current = setTimeout(() => {
+        historyTimerRef.current = null;
+        logHistory(song);
+      }, 4000);
     } catch (e) {
       console.error("playback error", e);
     }

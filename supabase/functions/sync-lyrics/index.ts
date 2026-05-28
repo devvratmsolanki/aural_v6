@@ -27,14 +27,14 @@ Deno.serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY not configured" }, 500);
 
-    // Auth check
+    // Auth check — use getUser() (server-validated) so revoked tokens are rejected,
+    // mirroring the pattern used in admin-create-user / admin-delete-user.
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
-    if (claimsErr || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
-    const userId = claimsData.claims.sub;
+    const { data: { user: callerUser }, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !callerUser) return json({ error: "Unauthorized" }, 401);
+    const userId = callerUser.id;
 
     // Service client for admin role check + DB writes + signed URL
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
