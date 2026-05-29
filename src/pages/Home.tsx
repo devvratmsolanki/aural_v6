@@ -6,14 +6,10 @@ import { TagFilter } from "@/components/music/TagFilter";
 import { List, Image as ImageIcon, Shuffle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { uuidList } from "@/lib/utils";
 
 type View = "polaroid" | "list";
 type Scope = "all" | "new" | "liked";
-
-// Only UUID-shaped ids are interpolated into PostgREST `in (...)` filters, so a
-// stray value can never alter the filter expression.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const uuidList = (ids: string[]) => ids.filter((id) => UUID_RE.test(id));
 
 const Home = () => {
   const { user } = useAuth();

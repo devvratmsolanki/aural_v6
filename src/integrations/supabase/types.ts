@@ -462,6 +462,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      analytics_active_users: {
+        Args: {
+          since: string
+        }
+        Returns: number
+      }
+      analytics_top_songs: {
+        Args: {
+          limit_n?: number
+        }
+        Returns: {
+          name: string
+          count: number
+        }[]
+      }
+      analytics_top_tags: {
+        Args: {
+          limit_n?: number
+        }
+        Returns: {
+          name: string
+          count: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

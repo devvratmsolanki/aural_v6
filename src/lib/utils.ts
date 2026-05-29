@@ -17,3 +17,8 @@ export function escapeLikePattern(term: string): string {
   // Escape SQL LIKE wildcards first, then the PostgREST comma separator.
   return term.replace(/%/g, "\\%").replace(/_/g, "\\_").replace(/,/g, "\\,");
 }
+
+// Only UUID-shaped ids are safe to interpolate into PostgREST `in (...)` filters,
+// so a stray value can never alter the filter expression.
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const uuidList = (ids: string[]): string[] => ids.filter((id) => UUID_RE.test(id));

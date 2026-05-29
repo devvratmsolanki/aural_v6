@@ -10,21 +10,17 @@ const AdminAnalytics = () => {
 
   useEffect(() => {
     (async () => {
-      const { data: hist } = await supabase.from("play_history").select("song_id, song:songs(title, tag:tags(name))").order("played_at", { ascending: false }).limit(2000);
-      const songMap = new Map<string, Row>();
-      const tagMap = new Map<string, Row>();
-      (hist ?? []).forEach((r) => {
-        const title = r.song?.title;
-        if (title) { const cur = songMap.get(title) ?? { name: title, count: 0 }; cur.count++; songMap.set(title, cur); }
-        const tname = r.song?.tag?.name;
-        if (tname) { const cur = tagMap.get(tname) ?? { name: tname, count: 0 }; cur.count++; tagMap.set(tname, cur); }
-      });
-      setTopSongs(Array.from(songMap.values()).sort((a, b) => b.count - a.count).slice(0, 10));
-      setTopTags(Array.from(tagMap.values()).sort((a, b) => b.count - a.count).slice(0, 10));
-
+      // Aggregate server-side (RPCs) instead of pulling raw rows and counting in
+      // the client — accurate at any history size and no N+1 join.
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const { data: ua } = await supabase.from("play_history").select("user_id").gte("played_at", since);
-      setActiveUsers(new Set((ua ?? []).map((r) => r.user_id)).size);
+      const [songs, tags, active] = await Promise.all([
+        supabase.rpc("analytics_top_songs", { limit_n: 10 }),
+        supabase.rpc("analytics_top_tags", { limit_n: 10 }),
+        supabase.rpc("analytics_active_users", { since }),
+      ]);
+      setTopSongs((songs.data ?? []).map((r) => ({ name: r.name, count: Number(r.count) })));
+      setTopTags((tags.data ?? []).map((r) => ({ name: r.name, count: Number(r.count) })));
+      setActiveUsers(active.data ?? 0);
     })();
   }, []);
 
