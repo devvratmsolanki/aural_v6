@@ -1,7 +1,7 @@
 import { Outlet, Navigate, NavLink } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Music2, Tag, Users, BarChart3, LayoutDashboard, ArrowLeft, Menu } from "lucide-react";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerProgress } from "@/contexts/PlayerContext";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -12,9 +12,23 @@ const fmt = (s: number) => {
   return `${m}:${ss}`;
 };
 
+// Isolated so the ~4×/sec position ticks re-render only this badge, not the
+// whole admin layout (and its routed page tree under <Outlet/>).
+const NowPlayingBadge = () => {
+  const { current } = usePlayer();
+  const { position, duration } = usePlayerProgress();
+  if (!current) return null;
+  return (
+    <div className="mb-4 inline-flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground bg-popover/60 border border-border rounded-full px-3 py-1">
+      <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+      <span className="text-foreground/80 truncate max-w-[200px]">{current.title}</span>
+      <span>{fmt(position)} / {fmt(duration)}</span>
+    </div>
+  );
+};
+
 const AdminLayout = () => {
   const { user, isAdmin, loading } = useAuth();
-  const { current, position, duration } = usePlayer();
   const [open, setOpen] = useState(false);
   if (loading) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/auth" replace />;
@@ -59,13 +73,7 @@ const AdminLayout = () => {
           </Sheet>
           <span className="text-xs font-semibold tracking-[0.3em] text-primary">ADMIN</span>
         </div>
-        {current && (
-          <div className="mb-4 inline-flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground bg-popover/60 border border-border rounded-full px-3 py-1">
-            <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-            <span className="text-foreground/80 truncate max-w-[200px]">{current.title}</span>
-            <span>{fmt(position)} / {fmt(duration)}</span>
-          </div>
-        )}
+        <NowPlayingBadge />
         <Outlet />
       </main>
     </div>

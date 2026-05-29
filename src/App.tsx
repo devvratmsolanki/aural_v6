@@ -1,4 +1,4 @@
-import { Component, ReactNode } from "react";
+import { Component, ReactNode, Suspense, lazy } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,18 +8,28 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { AppShell } from "@/components/layout/AppShell";
 import { Navigate } from "react-router-dom";
-import Auth from "./pages/Auth";
-import Home from "./pages/Home";
-import Search from "./pages/Search";
-import Liked from "./pages/Liked";
-import Profile from "./pages/Profile";
-import AdminLayout from "./pages/admin/AdminLayout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminSongs from "./pages/admin/AdminSongs";
-import AdminTags from "./pages/admin/AdminTags";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminAnalytics from "./pages/admin/AdminAnalytics";
-import NotFound from "./pages/NotFound.tsx";
+
+// Route-level code splitting. The always-present shell (AppShell + persistent
+// <Player/> footer) stays in the main bundle so navigation never flashes it; the
+// per-route page bodies are split into separate chunks, shrinking the initial
+// download and making first paint / navigation snappier. The Suspense fallback
+// renders inside the shell, so only the page area shows the spinner.
+const Auth = lazy(() => import("./pages/Auth"));
+const Home = lazy(() => import("./pages/Home"));
+const Search = lazy(() => import("./pages/Search"));
+const Liked = lazy(() => import("./pages/Liked"));
+const Profile = lazy(() => import("./pages/Profile"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminSongs = lazy(() => import("./pages/admin/AdminSongs"));
+const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
+const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+
+const RouteFallback = () => (
+  <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground text-sm">Loading…</div>
+);
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
@@ -55,23 +65,25 @@ const App = () => (
         <BrowserRouter>
           <AuthProvider>
             <PlayerProvider>
-              <Routes>
-                <Route path="/auth" element={<Auth />} />
-                <Route element={<RequireAuth><AppShell /></RequireAuth>}>
-                  <Route path="/" element={<Home />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/liked" element={<Liked />} />
-                  <Route path="/profile" element={<Profile />} />
-                </Route>
-                <Route path="/admin" element={<AdminLayout />}>
-                  <Route index element={<AdminDashboard />} />
-                  <Route path="songs" element={<AdminSongs />} />
-                  <Route path="tags" element={<AdminTags />} />
-                  <Route path="users" element={<AdminUsers />} />
-                  <Route path="analytics" element={<AdminAnalytics />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <Suspense fallback={<RouteFallback />}>
+                <Routes>
+                  <Route path="/auth" element={<Auth />} />
+                  <Route element={<RequireAuth><AppShell /></RequireAuth>}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/liked" element={<Liked />} />
+                    <Route path="/profile" element={<Profile />} />
+                  </Route>
+                  <Route path="/admin" element={<AdminLayout />}>
+                    <Route index element={<AdminDashboard />} />
+                    <Route path="songs" element={<AdminSongs />} />
+                    <Route path="tags" element={<AdminTags />} />
+                    <Route path="users" element={<AdminUsers />} />
+                    <Route path="analytics" element={<AdminAnalytics />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
             </PlayerProvider>
           </AuthProvider>
         </BrowserRouter>

@@ -1,9 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { resolveAudioUrl, coverUrl } from "@/lib/storage";
+import { resolveAudioUrl, getCachedAudioUrl, prefetchAudioUrl, coverUrl } from "@/lib/storage";
 import type { Song } from "@/types/music";
 import { useAuth } from "./AuthContext";
 
+// Controls + slow-changing state. Deliberately EXCLUDES position/duration so this
+// context's value reference is stable across the ~4×/sec audio `timeupdate` ticks
+// — components that only need controls (most of the app) no longer re-render on
+// every tick. Fast-changing playback progress lives in `ProgressCtx` below.
 interface PlayerCtx {
   current: Song | null;
   queue: Song[];
@@ -11,8 +15,6 @@ interface PlayerCtx {
   isPlaying: boolean;
   shuffle: boolean;
   loop: boolean;
-  duration: number;
-  position: number;
   volume: number;
   playSong: (song: Song, list?: Song[]) => Promise<void>;
   playShuffle: (list: Song[]) => Promise<void>;
@@ -25,7 +27,15 @@ interface PlayerCtx {
   toggleLoop: () => void;
 }
 
+// Fast-changing playback progress, isolated so only the seek bar / time readouts
+// (Player, Topbar, AdminLayout) re-render on each `timeupdate` tick.
+interface ProgressCtx {
+  position: number;
+  duration: number;
+}
+
 const Ctx = createContext<PlayerCtx | undefined>(undefined);
+const ProgressContext = createContext<ProgressCtx | undefined>(undefined);
 
 export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
@@ -46,6 +56,9 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   // Timer ref for the 4-second minimum-listen guard before logging play history.
   // Cleared on every new loadAndPlay call so rapid skips don't produce spurious rows.
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether we've already kicked off a "warm the next track" prefetch for the
+  // currently-playing track, so we don't re-fire it on every timeupdate tick.
+  const prefetchedForRef = useRef<string | null>(null);
   const [queue, setQueue] = useState<Song[]>([]);
   const [index, setIndex] = useState(-1);
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
@@ -61,6 +74,42 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const [volume, setVolumeState] = useState(0.8);
 
   const current = index >= 0 ? queue[index] ?? null : null;
+
+  // Mirror the queue-navigation state into refs so `predictNextSong()` (and the
+  // prefetch effect) can read the *latest* values without being re-created — and
+  // without forcing the prefetch logic to live inside reactive callbacks.
+  const queueRef = useRef(queue);
+  const indexRef = useRef(index);
+  const shuffleRef = useRef(shuffle);
+  const loopRef = useRef(loop);
+  const shuffleBagRef = useRef(shuffleBag);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
+  useEffect(() => { indexRef.current = index; }, [index]);
+  useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
+  useEffect(() => { loopRef.current = loop; }, [loop]);
+  useEffect(() => { shuffleBagRef.current = shuffleBag; }, [shuffleBag]);
+
+  // Best-effort prediction of which song `next()` (or the loop rewind) will play
+  // when the current track ends. Used only to warm the signed-URL cache ahead of
+  // time so the transition can start the next track synchronously. Mirrors the
+  // real `next()` logic:
+  //   loop      → same song (rewind in place)
+  //   shuffle   → queue[shuffleBag[0]] if the bag is non-empty (else best-effort:
+  //               the bag is empty only at cycle end, when next() reshuffles to a
+  //               random index we can't know here — we skip rather than guess)
+  //   sequential→ (index + 1) % len
+  const predictNextSong = useCallback((): Song | null => {
+    const q = queueRef.current;
+    if (q.length === 0) return null;
+    if (loopRef.current) return q[indexRef.current] ?? null;
+    if (shuffleRef.current) {
+      if (q.length === 1) return q[indexRef.current] ?? null;
+      const bag = shuffleBagRef.current;
+      if (bag.length > 0) return q[bag[0]] ?? null;
+      return null; // cycle exhausted — next index is random, can't prefetch reliably
+    }
+    return q[(indexRef.current + 1) % q.length] ?? null;
+  }, []);
 
   // Fully-guarded Media Session metadata setter. Called both from the render
   // effect AND eagerly from loadAndPlay, so the lock-screen controls + title
@@ -186,10 +235,49 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { currentRef.current = current; }, [current]);
 
+  // Read `user` via a ref so logHistory (and the whole loadAndPlay → next/prev
+  // callback chain that depends on it) keeps a STABLE identity. If logHistory
+  // closed over `user` directly, every auth-state change would re-create the
+  // control callbacks and bust the memoized controls context value.
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   const logHistory = useCallback(async (song: Song) => {
-    if (!user) return;
-    await supabase.from("play_history").insert({ user_id: user.id, song_id: song.id });
-  }, [user]);
+    const u = userRef.current;
+    if (!u) return;
+    await supabase.from("play_history").insert({ user_id: u.id, song_id: song.id });
+  }, []);
+
+  // Shared "start this URL playing" routine. `play()` is invoked here; the caller
+  // decides whether the URL was obtained synchronously (cache hit, lock-screen
+  // safe) or via an awaited network call. Always wires the lock-screen metadata
+  // and the 4s history timer the same way.
+  const startPlayback = useCallback((el: HTMLAudioElement, song: Song, url: string) => {
+    // Set lock-screen metadata + playing state BEFORE play, while still inside
+    // the current gesture / continuation turn. Android shows the controls
+    // immediately and treats the session as active across the transition, which
+    // is what keeps audio alive past the screen lock.
+    wantsToPlayRef.current = true;
+    applyMediaMetadata(song);
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try { navigator.mediaSession.playbackState = "playing"; } catch { /* ignore */ }
+    }
+    el.src = url;
+    const start = song.play_from || 0;
+    el.currentTime = start;
+    setPosition(start);
+    endAtFiredForRef.current = null;
+    // Reset the prefetch latch so the next track's URL gets warmed for THIS song.
+    prefetchedForRef.current = null;
+    const playResult = el.play();
+    // Only log play history after 4 s of continuous listening, so rapid skips
+    // don't spam the table and pollute the "New" tab / analytics.
+    historyTimerRef.current = setTimeout(() => {
+      historyTimerRef.current = null;
+      logHistory(song);
+    }, 4000);
+    return playResult;
+  }, [logHistory, applyMediaMetadata]);
 
   const loadAndPlay = useCallback(async (song: Song) => {
     const el = audioRef.current;
@@ -199,33 +287,38 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       clearTimeout(historyTimerRef.current);
       historyTimerRef.current = null;
     }
+    // FAST PATH (lock-screen-safe track transition): if the URL is already
+    // cached (warmed by the prefetch effect during the previous track) or the
+    // file_path is an external URL, set src + call play() SYNCHRONOUSLY in this
+    // same event-loop turn. No `await` separates the `aural:ended` handler from
+    // play(), so a locked/background browser treats it as a continuation of the
+    // existing media session and permits it — instead of blocking it as a fresh
+    // autoplay (the root cause of playback dying at every track transition).
+    const cachedUrl = getCachedAudioUrl(song);
+    if (cachedUrl) {
+      try {
+        await startPlayback(el, song, cachedUrl);
+      } catch (e) {
+        console.error("playback error", e);
+      }
+      return;
+    }
+    // SLOW PATH (cache miss, e.g. very first play or shuffle cycle wrap): we have
+    // to await the network sign before we can play. This path is fine in the
+    // foreground; in the background it may be blocked, which is exactly why we
+    // prefetch ahead so the fast path is taken at transitions.
     try {
-      // Set lock-screen metadata + playing state BEFORE the (async) play
-      // resolves, while still inside the user-gesture turn. Android shows the
-      // controls immediately and treats the session as active, which is what
-      // lets audio survive the screen lock.
       wantsToPlayRef.current = true;
       applyMediaMetadata(song);
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         try { navigator.mediaSession.playbackState = "playing"; } catch { /* ignore */ }
       }
       const url = await resolveAudioUrl(song);
-      el.src = url;
-      const start = song.play_from || 0;
-      el.currentTime = start;
-      setPosition(start);
-      endAtFiredForRef.current = null;
-      await el.play();
-      // Only log play history after 4 s of continuous listening, so rapid skips
-      // don't spam the table and pollute the "New" tab / analytics.
-      historyTimerRef.current = setTimeout(() => {
-        historyTimerRef.current = null;
-        logHistory(song);
-      }, 4000);
+      await startPlayback(el, song, url);
     } catch (e) {
       console.error("playback error", e);
     }
-  }, [logHistory, applyMediaMetadata]);
+  }, [startPlayback, applyMediaMetadata]);
 
   const playSong = useCallback(async (song: Song, list?: Song[]) => {
     const newQueue = list && list.length ? list : [song];
@@ -304,6 +397,26 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     loadAndPlay(queue[n]);
   }, [queue, index, shuffle, shuffleHistory, loadAndPlay]);
 
+  // Prefetch the next track's signed URL while THIS track plays, so the cache is
+  // warm and the transition can start it synchronously (the lock-screen fix in
+  // loadAndPlay). Fires when a song starts (current/shuffleBag change) and again
+  // partway through (via the position effect below). The ref-latch keyed on the
+  // *predicted* song id de-dupes repeat ticks but still re-fires if the
+  // prediction changes (e.g. user toggles shuffle/loop mid-song).
+  const maybePrefetchNext = useCallback(() => {
+    if (!currentRef.current) return;
+    const target = predictNextSong();
+    if (!target) return;
+    if (prefetchedForRef.current === target.id) return;
+    prefetchedForRef.current = target.id;
+    prefetchAudioUrl(target);
+  }, [predictNextSong]);
+
+  useEffect(() => {
+    if (!current) { prefetchedForRef.current = null; return; }
+    maybePrefetchNext();
+  }, [current, shuffleBag, shuffle, loop, queue, maybePrefetchNext]);
+
   // auto-next on ended
   useEffect(() => {
     const handler = () => {
@@ -325,6 +438,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   // enforce end_at — read live audio time to avoid stale React state firing
   // ended right after a song change (which would skip the new song)
   useEffect(() => {
+    // Partway-through safety net: if the start-of-song prefetch missed (e.g.
+    // the sign call failed transiently), retry warming the next track's URL so
+    // the lock-screen transition still has a synchronous cache hit to use.
+    maybePrefetchNext();
     if (!current?.end_at) return;
     const el = audioRef.current;
     if (!el || el.paused) return;
@@ -332,7 +449,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       endAtFiredForRef.current = current.id;
       el.dispatchEvent(new Event("ended"));
     }
-  }, [position, current]);
+  }, [position, current, maybePrefetchNext]);
 
   // stop on logout — react to auth state and the custom event
   useEffect(() => {
@@ -345,13 +462,15 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener("aural:stop", handler);
   }, []);
 
-  const seek = (s: number) => {
+  const seek = useCallback((s: number) => {
     if (audioRef.current) audioRef.current.currentTime = s;
-  };
-  const setVolume = (v: number) => {
+  }, []);
+  const setVolume = useCallback((v: number) => {
     setVolumeState(v);
     if (audioRef.current) audioRef.current.volume = v;
-  };
+  }, []);
+  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
+  const toggleLoop = useCallback(() => setLoop((s) => !s), []);
 
   // --- Media Session API ---------------------------------------------------
   // Registering metadata + action handlers makes mobile browsers treat the
@@ -384,7 +503,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       (["play", "pause", "previoustrack", "nexttrack", "seekto", "seekforward", "seekbackward"] as const)
         .forEach((a) => { try { ms.setActionHandler(a, null); } catch { /* noop */ } });
     };
-  }, [next, prev]);
+  }, [next, prev, seek]);
 
   // Keep lock-screen metadata in sync with the current track.
   useEffect(() => {
@@ -437,16 +556,30 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
+  // Controls value: memoized so its identity is STABLE across the ~4×/sec
+  // position/duration ticks. It only changes when one of these inputs actually
+  // changes — so `usePlayer()` consumers that don't read progress stop
+  // re-rendering on every timeupdate (the app-wide re-render storm fix). All the
+  // control fns are themselves useCallback-stable, so they don't perturb it.
+  const controls = useMemo<PlayerCtx>(() => ({
+    current, queue, index, isPlaying, shuffle, loop, volume,
+    playSong, playShuffle, toggle, next, prev, seek, setVolume,
+    toggleShuffle, toggleLoop,
+  }), [
+    current, queue, index, isPlaying, shuffle, loop, volume,
+    playSong, playShuffle, toggle, next, prev, seek, setVolume,
+    toggleShuffle, toggleLoop,
+  ]);
+
+  // Progress value: changes every tick, but only the small subtree under
+  // ProgressContext (seek bar / time readouts) consumes it.
+  const progress = useMemo<ProgressCtx>(() => ({ position, duration }), [position, duration]);
+
   return (
-    <Ctx.Provider
-      value={{
-        current, queue, index, isPlaying, shuffle, loop, duration, position, volume,
-        playSong, playShuffle, toggle, next, prev, seek, setVolume,
-        toggleShuffle: () => setShuffle((s) => !s),
-        toggleLoop: () => setLoop((s) => !s),
-      }}
-    >
-      {children}
+    <Ctx.Provider value={controls}>
+      <ProgressContext.Provider value={progress}>
+        {children}
+      </ProgressContext.Provider>
     </Ctx.Provider>
   );
 };
@@ -454,5 +587,14 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
 export const usePlayer = () => {
   const c = useContext(Ctx);
   if (!c) throw new Error("usePlayer must be used inside PlayerProvider");
+  return c;
+};
+
+// Subscribe ONLY to the fast-changing playback progress (position/duration).
+// Use this in the seek bar and time readouts so they update on every tick
+// without dragging the rest of the `usePlayer()` consumers into the re-render.
+export const usePlayerProgress = () => {
+  const c = useContext(ProgressContext);
+  if (!c) throw new Error("usePlayerProgress must be used inside PlayerProvider");
   return c;
 };

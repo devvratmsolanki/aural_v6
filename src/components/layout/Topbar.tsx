@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerProgress } from "@/contexts/PlayerContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import logo from "@/assets/logo.png";
@@ -27,12 +27,26 @@ interface Notif {
   created_at: string;
 }
 
+// Isolated so the position/duration ticks (~4×/sec) re-render only this tiny
+// badge, not the whole Topbar (which runs the notification realtime channel).
+const NowPlayingBadge = () => {
+  const { current } = usePlayer();
+  const { position, duration } = usePlayerProgress();
+  if (!current) return null;
+  return (
+    <div className="hidden sm:flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground bg-popover/60 border border-border rounded-full px-3 py-1">
+      <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+      <span className="text-foreground/80 truncate max-w-[120px]">{current.title}</span>
+      <span>{fmt(position)} / {fmt(duration)}</span>
+    </div>
+  );
+};
+
 export const Topbar = () => {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAdmin, profile, signOut } = useAuth();
-  const { current, position, duration } = usePlayer();
   const [notifs, setNotifs] = useState<Notif[]>([]);
 
   const loadNotifs = useCallback(async () => {
@@ -110,13 +124,7 @@ export const Topbar = () => {
         />
       </form>
       <div className="ml-auto flex items-center gap-2">
-        {current && (
-          <div className="hidden sm:flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground bg-popover/60 border border-border rounded-full px-3 py-1">
-            <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-            <span className="text-foreground/80 truncate max-w-[120px]">{current.title}</span>
-            <span>{fmt(position)} / {fmt(duration)}</span>
-          </div>
-        )}
+        <NowPlayingBadge />
         <Link to="/search" className="md:hidden size-9 rounded-full bg-popover border border-border flex items-center justify-center" aria-label="Search">
           <Search className="h-4 w-4 text-silver" />
         </Link>

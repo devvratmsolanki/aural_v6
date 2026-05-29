@@ -1,4 +1,4 @@
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerProgress } from "@/contexts/PlayerContext";
 import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Heart, Volume2, VolumeX, Mic2, StickyNote } from "lucide-react";
 import { coverUrl } from "@/lib/storage";
 import { Slider } from "@/components/ui/slider";
@@ -34,7 +34,8 @@ const useSwipeDownClose = (onClose: () => void) => {
 const isIOS = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 
 export const Player = () => {
-  const { current, isPlaying, position, duration, volume, shuffle, loop, toggle, next, prev, seek, setVolume, toggleShuffle, toggleLoop } = usePlayer();
+  const { current, isPlaying, volume, shuffle, loop, toggle, next, prev, seek, setVolume, toggleShuffle, toggleLoop } = usePlayer();
+  const { position, duration } = usePlayerProgress();
   const { user, isAdmin } = useAuth();
   const [liked, setLiked] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
